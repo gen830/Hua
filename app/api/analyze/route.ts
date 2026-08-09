@@ -31,13 +31,11 @@ function formatGeminiError(error: unknown): string {
 export async function POST(request: Request) {
   const apiKey = resolveGeminiApiKey()
   if (!apiKey) {
-    return Response.json(
-      {
-        error:
-          'GEMINI_API_KEY is not configured. Add it to .env.local and restart the dev server.',
-      },
-      { status: 503 },
-    )
+    const hint =
+      process.env.VERCEL === '1'
+        ? 'Vercel → Settings → Environment Variables に GEMINI_API_KEY（NEXT_PUBLIC_ なし）を追加し、Production にチェックして Redeploy してください。/api/health で gemini: true になるか確認できます。'
+        : 'GEMINI_API_KEY を .env.local に追加し、dev サーバーを再起動してください。'
+    return Response.json({ error: hint }, { status: 503 })
   }
 
   if (process.env.NODE_ENV === 'development') {
