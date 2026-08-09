@@ -1,0 +1,231 @@
+'use client'
+
+import { useCallback, useState } from 'react'
+import { LogIn } from 'lucide-react'
+import { Header, type View } from '@/components/huamaster/header'
+import { Translator } from '@/components/huamaster/translator'
+import { Library } from '@/components/huamaster/library'
+import { WordDetailModal } from '@/components/huamaster/word-detail-modal'
+import { SignInModal } from '@/components/huamaster/sign-in-modal'
+import { GoogleGlyph } from '@/components/huamaster/google-glyph'
+import { useSpeech } from '@/lib/use-speech'
+import {
+  AuthProvider,
+  useAuth,
+  type DemoAccount,
+} from '@/lib/auth-context'
+import type { Analysis, Word } from '@/lib/huamaster-data'
+
+export default function Page() {
+  return (
+    <AuthProvider>
+      <HuaMaster />
+    </AuthProvider>
+  )
+}
+
+function HuaMaster() {
+  const {
+    user,
+    words,
+    wordsLoading,
+    wordsError,
+    sentences,
+    signIn,
+    signOut,
+    isWordSaved,
+    toggleWord,
+    removeWord,
+    setWordStatus,
+    isSentenceSaved,
+    saveSentence,
+    removeSentence,
+  } = useAuth()
+
+  const [view, setView] = useState<View>('translate')
+  const [options, setOptions] = useState({
+    pinyin: true,
+    bopomofo: true,
+    audio: true,
+  })
+  const [selectedWord, setSelectedWord] = useState<Word | null>(null)
+  const [signInOpen, setSignInOpen] = useState(false)
+  const [signInReason, setSignInReason] = useState<string | undefined>(undefined)
+
+  const { supported: audioSupported, speak, speakingKey } = useSpeech()
+
+  const handleSpeak = useCallback(
+    (text: string, key: string) => {
+      if (!options.audio) return
+      speak(text, key)
+    },
+    [options.audio, speak],
+  )
+
+  const openSignIn = useCallback((reason?: string) => {
+    setSignInReason(reason)
+    setSignInOpen(true)
+  }, [])
+
+  const handleSelectAccount = useCallback(
+    (account: DemoAccount) => {
+      signIn(account)
+      setSignInOpen(false)
+      setSignInReason(undefined)
+    },
+    [signIn],
+  )
+
+  const handleNavigate = useCallback(
+    (v: View) => {
+      if (v === 'library' && !user) {
+        openSignIn('保存ライブラリを見るにはログインしてください')
+        return
+      }
+      setView(v)
+    },
+    [user, openSignIn],
+  )
+
+  // Word saving — requires sign-in.
+  const isSaved = useCallback((word: Word) => isWordSaved(word.hanzi), [
+    isWordSaved,
+  ])
+
+  const handleToggleWord = useCallback(
+    (word: Word) => {
+      if (!user) {
+        openSignIn('単語を保存するにはログインしてください')
+        return
+      }
+      void toggleWord(word)
+    },
+    [user, toggleWord, openSignIn],
+  )
+
+  const handleSaveSentence = useCallback(
+    (analysis: Analysis) => {
+      if (!user) {
+        openSignIn('文章・文法解説を保存するにはログインしてください')
+        return
+      }
+      saveSentence(analysis)
+    },
+    [user, saveSentence, openSignIn],
+  )
+
+  return (
+    <div className="min-h-dvh bg-background">
+      <Header
+        view={view}
+        setView={handleNavigate}
+        savedCount={words.length + sentences.length}
+        user={user}
+        onSignInClick={() => openSignIn()}
+        onSignOut={signOut}
+      />
+
+      <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
+        {view === 'translate' ? (
+          <>
+            <div className="mb-6 sm:mb-8">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground text-balance sm:text-3xl">
+                日本語を台湾華語に翻訳・分析
+              </h1>
+              <p className="mt-1.5 text-sm text-muted-foreground text-pretty">
+                文を入力すると、繁体字の訳・ピンイン・注音・文法の解説・単語カードが表示されます。
+              </p>
+            </div>
+            <Translator
+              options={options}
+              setOptions={setOptions}
+              onWordClick={setSelectedWord}
+              isSaved={isSaved}
+              onSpeak={handleSpeak}
+              speakingKey={speakingKey}
+              audioSupported={audioSupported}
+              onSaveSentence={handleSaveSentence}
+              isSentenceSaved={isSentenceSaved}
+            />
+          </>
+        ) : (
+          <>
+            <div className="mb-6 sm:mb-8">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground text-balance sm:text-3xl">
+                私の保存ライブラリ
+              </h1>
+              <p className="mt-1.5 text-sm text-muted-foreground text-pretty">
+                保存した文章・文法解説と単語をまとめて復習できます。
+              </p>
+            </div>
+            {user ? (
+              <Library
+                sentences={sentences}
+                words={words}
+                wordsLoading={wordsLoading}
+                wordsError={wordsError}
+                onRemoveSentence={removeSentence}
+                onSetWordStatus={setWordStatus}
+                onRemoveWord={removeWord}
+                onSpeak={handleSpeak}
+                speakingKey={speakingKey}
+                audioSupported={audioSupported}
+                showPinyin={options.pinyin}
+                showBopomofo={options.bopomofo}
+              />
+            ) : (
+              <SignInPrompt onSignIn={() => openSignIn()} />
+            )}
+          </>
+        )}
+      </main>
+
+      <WordDetailModal
+        word={selectedWord}
+        saved={selectedWord ? isSaved(selectedWord) : false}
+        onClose={() => setSelectedWord(null)}
+        onToggleSave={handleToggleWord}
+        onSpeak={handleSpeak}
+        speakingKey={speakingKey}
+        audioSupported={audioSupported}
+      />
+
+      <SignInModal
+        open={signInOpen}
+        onClose={() => setSignInOpen(false)}
+        onSelect={handleSelectAccount}
+        reason={signInReason}
+      />
+
+      <footer className="mx-auto max-w-5xl px-4 pb-10 pt-4 text-center sm:px-6">
+        <p className="text-xs text-muted-foreground">
+          HuaMaster · 台湾華語（繁體中文）学習アシスタント · デモ版
+        </p>
+      </footer>
+    </div>
+  )
+}
+
+function SignInPrompt({ onSignIn }: { onSignIn: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border bg-card/50 px-6 py-16 text-center">
+      <span className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-accent-foreground">
+        <LogIn className="h-7 w-7" aria-hidden="true" />
+      </span>
+      <p className="mt-4 text-base font-semibold text-foreground">
+        ログインして学習を保存
+      </p>
+      <p className="mt-1 max-w-sm text-sm text-muted-foreground text-pretty">
+        Google でログインすると、保存した単語は Supabase に、文章・文法解説はブラウザーに保存され、いつでも復習できます。
+      </p>
+      <button
+        type="button"
+        onClick={onSignIn}
+        className="mt-5 inline-flex items-center gap-2 rounded-full border border-border bg-card px-5 py-3 text-sm font-semibold text-foreground shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <GoogleGlyph className="h-4 w-4" />
+        Google でログイン
+      </button>
+    </div>
+  )
+}

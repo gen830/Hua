@@ -1,0 +1,71 @@
+import { ApiError } from '@google/genai'
+import { analyzeWithGemini, isZeroQuotaError } from '@/lib/gemini-analyze'
+import {
+  describeApiKeyFormat,
+  resolveGeminiApiKey,
+} from '@/lib/gemini-client'
+import type { Analysis } from '@/lib/huamaster-data'
+
+export const runtime = 'nodejs'
+
+const MAX_INPUT_LENGTH = 2000
+
+function formatGeminiError(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 429) {
+      if (isZeroQuotaError(error)) {
+        return 'この Gemini モデルには無料枠が割り当てられていません（limit: 0）。使い切ったわけではありません。Google AI Studio で gemini-2.5-flash-lite など利用可能なモデルを .env.local の GEMINI_MODEL に設定するか、請求設定を確認してください。'
+      }
+      return 'Gemini API のリクエスト上限に達しました。1〜2 分待ってから再試行してください。'
+    }
+    if (error.status === 404) {
+      return '指定した Gemini モデルが利用できません。.env.local の GEMINI_MODEL を gemini-2.5-flash-lite に変更してください。'
+    }
+    if (error.status === 401 || error.status === 403) {
+      return 'Gemini API キーが無効です。Google AI Studio でキーを再確認してください。（AQ. 形式・AIza 形式のどちらも利用可能）'
+    }
+  }
+  return '翻訳・文法分析に失敗しました。しばらくしてから再試行してください。'
+}
+
+export async function POST(request: Request) {
+  const apiKey = resolveGeminiApiKey()
+  if (!apiKey) {
+    return Response.json(
+      {
+        error:
+          'GEMINI_API_KEY is not configured. Add it to .env.local and restart the dev server.',
+      },
+      { status: 503 },
+    )
+  }
+
+  if (process.env.NODE_ENV === 'development') {
+    console.info(
+      `[analyze] Using Gemini key format: ${describeApiKeyFormat(apiKey)}`,
+    )
+  }
+
+  try {
+    const body = (await request.json()) as { text?: unknown }
+    const text = typeof body.text === 'string' ? body.text.trim() : ''
+
+    if (!text) {
+      return Response.json({ error: 'text is required' }, { status: 400 })
+    }
+    if (text.length > MAX_INPUT_LENGTH) {
+      return Response.json({ error: 'text too long' }, { status: 400 })
+    }
+
+    const result = await analyzeWithGemini(text)
+    const analysis: Analysis = {
+      source: text,
+      ...result,
+    }
+
+    return Response.json(analysis)
+  } catch (error) {
+    console.error('[analyze]', error)
+    return Response.json({ error: formatGeminiError(error) }, { status: 500 })
+  }
+}
