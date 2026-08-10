@@ -7,6 +7,7 @@ import {
 import type { Analysis } from '@/lib/huamaster-data'
 
 export const runtime = 'nodejs'
+export const maxDuration = 60
 
 const MAX_INPUT_LENGTH = 2000
 
@@ -22,9 +23,30 @@ function formatGeminiError(error: unknown): string {
       return '指定した Gemini モデルが利用できません。.env.local の GEMINI_MODEL を gemini-2.5-flash-lite に変更してください。'
     }
     if (error.status === 401 || error.status === 403) {
-      return 'Gemini API キーが無効です。Google AI Studio でキーを再確認してください。（AQ. 形式・AIza 形式のどちらも利用可能）'
+      return 'Gemini API キーが無効です。Google AI Studio でキーを再確認し、Vercel の GEMINI_API_KEY が最新か確認してください。'
+    }
+    if (error.message) {
+      return `Gemini API エラー (${error.status}): ${error.message}`
     }
   }
+
+  if (error instanceof SyntaxError) {
+    return 'Gemini の応答を解析できませんでした。もう一度お試しください。'
+  }
+
+  if (error instanceof Error) {
+    const msg = error.message
+    if (/api.?key|unauthorized|permission denied/i.test(msg)) {
+      return 'Gemini API キーが無効です。Vercel → GEMINI_API_KEY を確認して Redeploy してください。'
+    }
+    if (/quota|rate limit|429/i.test(msg)) {
+      return 'Gemini API のリクエスト上限に達しました。1〜2 分待ってから再試行してください。'
+    }
+    if (msg && msg.length <= 180) {
+      return `翻訳・文法分析に失敗しました: ${msg}`
+    }
+  }
+
   return '翻訳・文法分析に失敗しました。しばらくしてから再試行してください。'
 }
 
