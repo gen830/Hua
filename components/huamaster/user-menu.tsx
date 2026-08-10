@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 
 type UserMenuProps = {
   user: User
-  onSignOut: () => void
+  onSignOut: () => void | Promise<void>
 }
 
 export function UserMenu({ user, onSignOut }: UserMenuProps) {
@@ -41,11 +41,20 @@ export function UserMenu({ user, onSignOut }: UserMenuProps) {
         aria-expanded={open}
         aria-label="アカウントメニュー"
         className={cn(
-          'inline-flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br text-sm font-bold text-white shadow-sm ring-offset-background transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-          user.avatar,
+          'inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-full text-sm font-bold text-white shadow-sm ring-offset-background transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+          !user.avatarUrl && `bg-gradient-to-br ${user.avatar}`,
         )}
       >
-        {user.name.charAt(0)}
+        {user.avatarUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={user.avatarUrl}
+            alt=""
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          user.name.charAt(0)
+        )}
       </button>
 
       {open && (
@@ -56,12 +65,21 @@ export function UserMenu({ user, onSignOut }: UserMenuProps) {
           <div className="flex items-center gap-3 rounded-xl px-3 py-2.5">
             <span
               className={cn(
-                'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-base font-bold text-white',
-                user.avatar,
+                'inline-flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full text-base font-bold text-white',
+                !user.avatarUrl && `bg-gradient-to-br ${user.avatar}`,
               )}
               aria-hidden="true"
             >
-              {user.name.charAt(0)}
+              {user.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={user.avatarUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                user.name.charAt(0)
+              )}
             </span>
             <span className="min-w-0">
               <span className="block truncate text-sm font-semibold text-popover-foreground">
@@ -78,7 +96,7 @@ export function UserMenu({ user, onSignOut }: UserMenuProps) {
             role="menuitem"
             onClick={() => {
               setOpen(false)
-              onSignOut()
+              void onSignOut()
             }}
             className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium text-popover-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >

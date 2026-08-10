@@ -1,6 +1,6 @@
 'use client'
 
-// Demo authentication + Supabase-backed vocabulary and sentence storage.
+// Supabase Auth (Google) + cloud-backed vocabulary and sentence storage.
 
 import {
   createContext,
@@ -11,6 +11,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { mapSupabaseUser, type User } from './auth-user'
 import type {
   Analysis,
   NotebookEntry,
@@ -32,52 +33,31 @@ import {
   updateSavedWordStatus,
 } from './saved-words'
 import { formatSupabaseError } from './supabase-errors'
-import { isSupabaseConfigured } from './supabaseClient'
+import {
+  getAuthCallbackUrl,
+  getSupabaseClient,
+  isSupabaseConfigured,
+} from './supabaseClient'
 
-export type DemoAccount = {
-  name: string
-  email: string
-  /** tailwind gradient classes for the avatar */
-  avatar: string
-}
-
-export type User = DemoAccount
-
-export const DEMO_ACCOUNTS: DemoAccount[] = [
-  {
-    name: '田中 美咲',
-    email: 'misaki.tanaka@gmail.com',
-    avatar: 'from-emerald-400 to-teal-500',
-  },
-  {
-    name: 'Kenji Sato',
-    email: 'kenji.sato@gmail.com',
-    avatar: 'from-sky-400 to-indigo-500',
-  },
-]
-
-type StoredSentences = {
-  sentences: SentenceEntry[]
-}
+export type { User }
 
 type AuthContextValue = {
   user: User | null
   ready: boolean
+  authLoading: boolean
   words: NotebookEntry[]
   wordsLoading: boolean
   wordsError: string | null
   sentences: SentenceEntry[]
   sentencesLoading: boolean
   sentencesError: string | null
-  signIn: (account: DemoAccount) => void
-  signOut: () => void
-  // words (Supabase)
+  signInWithGoogle: () => Promise<void>
+  signOut: () => Promise<void>
   isWordSaved: (hanzi: string) => boolean
   toggleWord: (word: Word) => Promise<void>
   removeWord: (id: string) => Promise<void>
   setWordStatus: (id: string, status: ReviewStatus) => Promise<void>
   refreshWords: () => Promise<void>
-  // sentences (Supabase)
   isSentenceSaved: (source: string, translation: string) => boolean
   saveSentence: (analysis: Analysis) => Promise<void>
   removeSentence: (id: string) => Promise<void>
@@ -86,13 +66,19 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-const USER_KEY = 'huamaster:user'
-const sentencesKey = (email: string) => `huamaster:sentences:${email}`
+type StoredSentences = {
+  sentences: SentenceEntry[]
+}
 
-function loadLocalSentences(email: string): SentenceEntry[] {
+/** Legacy demo localStorage key pattern (pre-Google Auth). */
+function legacySentencesKey(email: string): string {
+  return `huamaster:sentences:${email}`
+}
+
+function loadLegacySentences(email: string): SentenceEntry[] {
   if (typeof window === 'undefined') return []
   try {
-    const raw = window.localStorage.getItem(sentencesKey(email))
+    const raw = window.localStorage.getItem(legacySentencesKey(email))
     if (!raw) return []
     const parsed = JSON.parse(raw) as Partial<StoredSentences>
     return parsed.sentences ?? []
@@ -101,10 +87,10 @@ function loadLocalSentences(email: string): SentenceEntry[] {
   }
 }
 
-function clearLocalSentences(email: string) {
+function clearLegacySentences(email: string) {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.removeItem(sentencesKey(email))
+    window.localStorage.removeItem(legacySentencesKey(email))
   } catch {
     // ignore
   }
@@ -113,6 +99,7 @@ function clearLocalSentences(email: string) {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [ready, setReady] = useState(false)
+  const [authLoading, setAuthLoading] = useState(false)
   const [words, setWords] = useState<NotebookEntry[]>([])
   const [wordsLoading, setWordsLoading] = useState(false)
   const [wordsError, setWordsError] = useState<string | null>(null)
@@ -157,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       let entries = await fetchSavedSentences(email)
 
-      const localEntries = loadLocalSentences(email)
+      const localEntries = loadLegacySentences(email)
       if (localEntries.length > 0) {
         const imported = await importLocalSentences(
           email,
@@ -167,7 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (imported > 0) {
           entries = await fetchSavedSentences(email)
         }
-        clearLocalSentences(email)
+        clearLegacySentences(email)
       }
 
       setSentences(entries)
@@ -190,49 +177,96 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [loadWordsFromSupabase, loadSentencesFromSupabase],
   )
 
-  // Restore session on mount.
-  useEffect(() => {
-    async function restore() {
-      try {
-        const raw = window.localStorage.getItem(USER_KEY)
-        if (raw) {
-          const restored = JSON.parse(raw) as User
-          setUser(restored)
-          await loadUserData(restored.email)
-        }
-      } catch {
-        // ignore corrupt storage
-      }
-      setReady(true)
-    }
-    void restore()
-  }, [loadUserData])
-
-  const signIn = useCallback(
-    (account: DemoAccount) => {
-      setUser(account)
-      try {
-        window.localStorage.setItem(USER_KEY, JSON.stringify(account))
-      } catch {
-        // ignore
-      }
-      void loadUserData(account.email)
-    },
-    [loadUserData],
-  )
-
-  const signOut = useCallback(() => {
-    setUser(null)
+  const clearUserData = useCallback(() => {
     setWords([])
     setWordsError(null)
     setSentences([])
     setSentencesError(null)
+  }, [])
+
+  useEffect(() => {
+    const supabase = getSupabaseClient()
+    if (!supabase) {
+      setReady(true)
+      return
+    }
+
+    let mounted = true
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return
+      if (session?.user) {
+        const mapped = mapSupabaseUser(session.user)
+        setUser(mapped)
+        void loadUserData(mapped.email)
+      }
+      setReady(true)
+    })
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return
+      if (session?.user) {
+        const mapped = mapSupabaseUser(session.user)
+        setUser(mapped)
+        void loadUserData(mapped.email)
+      } else {
+        setUser(null)
+        clearUserData()
+      }
+    })
+
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
+  }, [clearUserData, loadUserData])
+
+  const signInWithGoogle = useCallback(async () => {
+    const supabase = getSupabaseClient()
+    if (!supabase) {
+      throw new Error('Supabase が未設定です。')
+    }
+
+    const redirectTo = getAuthCallbackUrl()
+    if (!redirectTo) {
+      throw new Error('リダイレクト URL を決定できません。')
+    }
+
+    setAuthLoading(true)
     try {
-      window.localStorage.removeItem(USER_KEY)
-    } catch {
-      // ignore
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo,
+          queryParams: {
+            prompt: 'select_account',
+          },
+        },
+      })
+      if (error) throw error
+    } finally {
+      setAuthLoading(false)
     }
   }, [])
+
+  const signOut = useCallback(async () => {
+    const supabase = getSupabaseClient()
+    if (!supabase) return
+
+    setAuthLoading(true)
+    try {
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
+      setUser(null)
+      clearUserData()
+    } catch (err) {
+      console.error('[auth] signOut failed', err)
+    } finally {
+      setAuthLoading(false)
+    }
+  }, [clearUserData])
 
   const refreshWords = useCallback(async () => {
     if (!user) return
@@ -388,13 +422,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       user,
       ready,
+      authLoading,
       words,
       wordsLoading,
       wordsError,
       sentences,
       sentencesLoading,
       sentencesError,
-      signIn,
+      signInWithGoogle,
       signOut,
       isWordSaved,
       toggleWord,
@@ -409,13 +444,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [
       user,
       ready,
+      authLoading,
       words,
       wordsLoading,
       wordsError,
       sentences,
       sentencesLoading,
       sentencesError,
-      signIn,
+      signInWithGoogle,
       signOut,
       isWordSaved,
       toggleWord,

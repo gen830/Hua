@@ -1,24 +1,26 @@
 'use client'
 
-import { useEffect } from 'react'
-import { X } from 'lucide-react'
-import { DEMO_ACCOUNTS, type DemoAccount } from '@/lib/auth-context'
+import { useEffect, useState } from 'react'
+import { Loader2, X } from 'lucide-react'
 import { GoogleGlyph } from './google-glyph'
-import { cn } from '@/lib/utils'
 
 type SignInModalProps = {
   open: boolean
   onClose: () => void
-  onSelect: (account: DemoAccount) => void
+  onSignIn: () => Promise<void>
+  loading?: boolean
   reason?: string
 }
 
 export function SignInModal({
   open,
   onClose,
-  onSelect,
+  onSignIn,
+  loading = false,
   reason,
 }: SignInModalProps) {
+  const [error, setError] = useState<string | null>(null)
+
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
@@ -32,7 +34,24 @@ export function SignInModal({
     }
   }, [open, onClose])
 
+  useEffect(() => {
+    if (open) setError(null)
+  }, [open])
+
   if (!open) return null
+
+  async function handleSignIn() {
+    setError(null)
+    try {
+      await onSignIn()
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'ログインに失敗しました。もう一度お試しください。',
+      )
+    }
+  }
 
   return (
     <div
@@ -60,46 +79,36 @@ export function SignInModal({
         <div className="flex flex-col items-center text-center">
           <GoogleGlyph className="h-8 w-8" />
           <h2 className="mt-3 text-lg font-semibold text-foreground">
-            アカウントを選択
+            Google でログイン
           </h2>
           <p className="mt-1 text-sm text-muted-foreground text-pretty">
-            {reason ?? 'HuaMaster に Google でログイン'}
+            {reason ?? '保存した単語・文章をどのデバイスからでも復習できます。'}
           </p>
         </div>
 
-        <ul className="mt-6 flex flex-col gap-2">
-          {DEMO_ACCOUNTS.map((account) => (
-            <li key={account.email}>
-              <button
-                type="button"
-                onClick={() => onSelect(account)}
-                className="flex w-full items-center gap-3 rounded-2xl border border-border bg-background px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <span
-                  className={cn(
-                    'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-base font-bold text-white',
-                    account.avatar,
-                  )}
-                  aria-hidden="true"
-                >
-                  {account.name.charAt(0)}
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-semibold text-foreground">
-                    {account.name}
-                  </span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {account.email}
-                  </span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <button
+          type="button"
+          onClick={() => void handleSignIn()}
+          disabled={loading}
+          className="mt-6 flex w-full items-center justify-center gap-3 rounded-2xl border border-border bg-background px-4 py-3.5 text-sm font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {loading ? (
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+          ) : (
+            <GoogleGlyph className="h-5 w-5" />
+          )}
+          {loading ? 'Google へ移動中…' : 'Google アカウントで続行'}
+        </button>
+
+        {error && (
+          <p className="mt-4 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-xs text-destructive">
+            {error}
+          </p>
+        )}
 
         <p className="mt-5 text-center text-[0.7rem] leading-relaxed text-muted-foreground">
-          これはデモ用のログインです。実際の Google
-          認証は行われず、データはこのブラウザーにのみ保存されます。
+          ログイン後、単語と文章は Supabase に保存され、同じ Google
+          アカウントならスマホ・PC どちらからでも見られます。
         </p>
       </div>
     </div>

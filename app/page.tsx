@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { LogIn } from 'lucide-react'
 import { Header, type View } from '@/components/huamaster/header'
 import { Translator } from '@/components/huamaster/translator'
@@ -9,11 +9,7 @@ import { WordDetailModal } from '@/components/huamaster/word-detail-modal'
 import { SignInModal } from '@/components/huamaster/sign-in-modal'
 import { GoogleGlyph } from '@/components/huamaster/google-glyph'
 import { useSpeech } from '@/lib/use-speech'
-import {
-  AuthProvider,
-  useAuth,
-  type DemoAccount,
-} from '@/lib/auth-context'
+import { AuthProvider, useAuth } from '@/lib/auth-context'
 import type { Analysis, Word } from '@/lib/huamaster-data'
 
 export default function Page() {
@@ -33,8 +29,9 @@ function HuaMaster() {
     sentences,
     sentencesLoading,
     sentencesError,
-    signIn,
+    signInWithGoogle,
     signOut,
+    authLoading,
     isWordSaved,
     toggleWord,
     removeWord,
@@ -53,6 +50,19 @@ function HuaMaster() {
   const [selectedWord, setSelectedWord] = useState<Word | null>(null)
   const [signInOpen, setSignInOpen] = useState(false)
   const [signInReason, setSignInReason] = useState<string | undefined>(undefined)
+  const [authError, setAuthError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const message = params.get('auth_error')
+    if (!message) return
+    setAuthError(message)
+    setSignInOpen(true)
+    params.delete('auth_error')
+    const next = params.toString()
+    const url = next ? `${window.location.pathname}?${next}` : window.location.pathname
+    window.history.replaceState({}, '', url)
+  }, [])
 
   const { supported: audioSupported, speak, speakingKey } = useSpeech()
 
@@ -69,14 +79,9 @@ function HuaMaster() {
     setSignInOpen(true)
   }, [])
 
-  const handleSelectAccount = useCallback(
-    (account: DemoAccount) => {
-      signIn(account)
-      setSignInOpen(false)
-      setSignInReason(undefined)
-    },
-    [signIn],
-  )
+  const handleSignInWithGoogle = useCallback(async () => {
+    await signInWithGoogle()
+  }, [signInWithGoogle])
 
   const handleNavigate = useCallback(
     (v: View) => {
@@ -128,6 +133,11 @@ function HuaMaster() {
       />
 
       <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
+        {authError && (
+          <p className="mb-4 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            {authError}
+          </p>
+        )}
         {view === 'translate' ? (
           <>
             <div className="mb-6 sm:mb-8">
@@ -197,13 +207,14 @@ function HuaMaster() {
       <SignInModal
         open={signInOpen}
         onClose={() => setSignInOpen(false)}
-        onSelect={handleSelectAccount}
+        onSignIn={handleSignInWithGoogle}
+        loading={authLoading}
         reason={signInReason}
       />
 
       <footer className="mx-auto max-w-5xl px-4 pb-10 pt-4 text-center sm:px-6">
         <p className="text-xs text-muted-foreground">
-          HuaMaster · 台湾華語（繁體中文）学習アシスタント · デモ版
+          HuaMaster · 台湾華語（繁體中文）学習アシスタント
         </p>
       </footer>
     </div>
