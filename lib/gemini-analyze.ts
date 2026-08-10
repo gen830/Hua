@@ -88,21 +88,35 @@ Instructions:
 - Prefer Taiwan vocabulary (e.g. 軟體, 影片, 公車, 捷運).
 - Write grammar notes in Japanese for beginner learners (2–4 notes).
 - Segment the translation into vocabulary items in reading order.
+- Keep natural compound words together (e.g. 牛肉麵, not splitting into 牛肉 + 麵).
 - For each word provide: hanzi, pinyin (tone marks), bopomofo (注音), Japanese meaning (jp), part of speech in Japanese (pos).
 - sourceLang must be a short Japanese label such as "日本語" or "繁體中文".`
 }
 
 function toWord(raw: GeminiWord): Word {
   const known = lookupWord(raw.hanzi)
+  const geminiJp = raw.jp?.trim()
+
+  // Prefer Gemini gloss when present; fall back to offline dictionary.
+  if (geminiJp) {
+    return {
+      hanzi: raw.hanzi,
+      pinyin: raw.pinyin || known.pinyin,
+      bopomofo: raw.bopomofo || known.bopomofo,
+      jp: geminiJp,
+      pos: raw.pos || known.pos,
+    }
+  }
+
   if (known.jp !== '（辞書未登録）') {
     return {
       ...known,
       pinyin: raw.pinyin || known.pinyin,
       bopomofo: raw.bopomofo || known.bopomofo,
-      jp: raw.jp || known.jp,
       pos: raw.pos || known.pos,
     }
   }
+
   return {
     hanzi: raw.hanzi,
     pinyin: raw.pinyin,
@@ -112,19 +126,112 @@ function toWord(raw: GeminiWord): Word {
   }
 }
 
+function isUnresolvedWord(word: Word): boolean {
+  return !word.jp?.trim() || word.jp === '（辞書未登録）'
+}
+
+/** Merge consecutive unresolved chips into a known compound (e.g. 牛肉 + 麵 → 牛肉麵). */
+function coalesceWords(words: Word[], geminiWords: GeminiWord[]): Word[] {
+  const byHanzi = new Map(geminiWords.map((w) => [w.hanzi, w]))
+  const result: Word[] = []
+  let i = 0
+
+  while (i < words.length) {
+    if (!isUnresolvedWord(words[i]!)) {
+      result.push(words[i]!)
+      i++
+      continue
+    }
+
+    let merged = false
+    for (let j = words.length; j > i; j--) {
+      const slice = words.slice(i, j)
+      if (!slice.some(isUnresolvedWord)) continue
+
+      const hanzi = slice.map((w) => w.hanzi).join('')
+      const gw = byHanzi.get(hanzi)
+      if (gw?.jp?.trim()) {
+        result.push(toWord(gw))
+        i = j
+        merged = true
+        break
+      }
+
+      const known = lookupWord(hanzi)
+      if (!isUnresolvedWord(known)) {
+        result.push(known)
+        i = j
+        merged = true
+        break
+      }
+    }
+
+    if (!merged) {
+      result.push(words[i]!)
+      i++
+    }
+  }
+
+  return result
+}
+
+function alignTranslationToWords(
+  translation: string,
+  byHanzi: Map<string, GeminiWord>,
+): Word[] {
+  const result: Word[] = []
+  const chars = [...translation]
+  let i = 0
+
+  while (i < chars.length) {
+    if (!/[\u4e00-\u9fff]/.test(chars[i]!)) {
+      i++
+      continue
+    }
+
+    let best: { len: number; word: Word } | null = null
+
+    for (let len = chars.length - i; len >= 1; len--) {
+      const slice = chars.slice(i, i + len).join('')
+      if (!/^[\u4e00-\u9fff]+$/.test(slice)) continue
+
+      const gw = byHanzi.get(slice)
+      if (gw?.jp?.trim()) {
+        const word = toWord(gw)
+        if (!best || len > best.len) best = { len, word }
+      }
+
+      const known = lookupWord(slice)
+      if (!isUnresolvedWord(known)) {
+        if (!best || len > best.len) best = { len, word: known }
+      }
+    }
+
+    if (best) {
+      result.push(best.word)
+      i += best.len
+      continue
+    }
+
+    const ch = chars[i]!
+    const gw = byHanzi.get(ch)
+    result.push(gw ? toWord(gw) : lookupWord(ch))
+    i++
+  }
+
+  return result
+}
+
 function mergeWords(translation: string, geminiWords: GeminiWord[]): Word[] {
-  const tokens = segmentChineseText(translation)
-  if (tokens.length === 0) {
-    return geminiWords.map(toWord)
+  if (geminiWords.length === 0) {
+    return segmentChineseText(translation).map(lookupWord)
   }
 
   const byHanzi = new Map(geminiWords.map((w) => [w.hanzi, w]))
-
-  return tokens.map((token) => {
-    const fromGemini = byHanzi.get(token)
-    if (fromGemini) return toWord(fromGemini)
-    return lookupWord(token)
-  })
+  return coalesceWords(
+    alignTranslationToWords(translation, byHanzi),
+    geminiWords,
+  )
 }
 
 function isRetryableModelError(error: unknown): boolean {

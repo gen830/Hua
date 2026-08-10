@@ -21,7 +21,6 @@ import {
   type Word,
 } from '@/lib/huamaster-data'
 import { cn } from '@/lib/utils'
-import { useChineseSegment } from '@/lib/use-chinese-segment'
 import { OptionToggle } from './option-toggle'
 import { GrammarCard } from './grammar-card'
 import { WordChip } from './word-chip'
@@ -61,15 +60,8 @@ export function Translator({
   const [copied, setCopied] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
-  const {
-    words: liveWords,
-    loading: segmentLoading,
-    ready: segmentReady,
-    error: segmentError,
-  } = useChineseSegment(input)
 
   const canAnalyze = input.trim().length > 0
-  const showLiveSegment = segmentReady && liveWords.length > 0
 
   async function handleAnalyze() {
     if (!canAnalyze || analyzing) return
@@ -153,47 +145,6 @@ export function Translator({
           className="w-full resize-none rounded-2xl border border-input bg-background px-4 py-3 text-base leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
 
-        {/* Live word segmentation (Traditional Chinese input) */}
-        {(showLiveSegment || segmentLoading || segmentError) && (
-          <div className="mt-4 rounded-2xl border border-border bg-muted/30 p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-foreground">
-                単語の分解
-              </h3>
-              {showLiveSegment && (
-                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                  {liveWords.length} 語
-                </span>
-              )}
-              {segmentLoading && (
-                <span className="text-xs text-muted-foreground">分詞中…</span>
-              )}
-            </div>
-            {segmentError ? (
-              <p className="text-xs text-destructive">{segmentError}</p>
-            ) : showLiveSegment ? (
-              <>
-                <p className="mb-3 text-xs text-muted-foreground">
-                  単語をタップすると詳細が表示されます
-                </p>
-                <div className="flex flex-wrap gap-2.5">
-                  {liveWords.map((word, i) => (
-                    <WordChip
-                      key={`live-${word.hanzi}-${i}`}
-                      word={word}
-                      index={i}
-                      showPinyin={options.pinyin}
-                      showBopomofo={options.bopomofo}
-                      saved={isSaved(word)}
-                      onClick={() => onWordClick(word)}
-                    />
-                  ))}
-                </div>
-              </>
-            ) : null}
-          </div>
-        )}
-
         {/* Example prompts */}
         <div className="mt-3 flex flex-wrap gap-2">
           {EXAMPLE_PROMPTS.map((ex) => (
@@ -243,7 +194,7 @@ export function Translator({
             ) : (
               <Sparkles className="h-4 w-4" aria-hidden="true" />
             )}
-            {analyzing ? 'Gemini で分析中…' : '翻訳して分析（日本語 → 台湾華語）'}
+            {analyzing ? 'Gemini で分析中…' : '翻訳して分析'}
           </button>
           <button
             type="button"
@@ -408,7 +359,7 @@ function EmptyState() {
         ここに翻訳と分析が表示されます
       </p>
       <p className="mt-1 max-w-xs text-xs text-muted-foreground text-pretty">
-        日本語の文を入力して「翻訳して分析」を押すと、台湾華語の訳・文法解説・単語カードが出てきます。
+        日本語または繁体字の文を入力して「翻訳して分析」を押すと、台湾華語の訳・文法解説・単語カードが出てきます。
       </p>
     </div>
   )
