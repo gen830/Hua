@@ -31,6 +31,8 @@ function HuaMaster() {
     wordsLoading,
     wordsError,
     sentences,
+    sentencesLoading,
+    sentencesError,
     signIn,
     signOut,
     isWordSaved,
@@ -109,7 +111,7 @@ function HuaMaster() {
         openSignIn('文章・文法解説を保存するにはログインしてください')
         return
       }
-      saveSentence(analysis)
+      void saveSentence(analysis)
     },
     [user, saveSentence, openSignIn],
   )
@@ -164,6 +166,8 @@ function HuaMaster() {
                 words={words}
                 wordsLoading={wordsLoading}
                 wordsError={wordsError}
+                sentencesLoading={sentencesLoading}
+                sentencesError={sentencesError}
                 onRemoveSentence={removeSentence}
                 onSetWordStatus={setWordStatus}
                 onRemoveWord={removeWord}
@@ -216,7 +220,7 @@ function SignInPrompt({ onSignIn }: { onSignIn: () => void }) {
         ログインして学習を保存
       </p>
       <p className="mt-1 max-w-sm text-sm text-muted-foreground text-pretty">
-        Google でログインすると、保存した単語は Supabase に、文章・文法解説はブラウザーに保存され、いつでも復習できます。
+        Google でログインすると、保存した単語と文章・文法解説は Supabase に保存され、端末を替えても復習できます。
       </p>
       <button
         type="button"

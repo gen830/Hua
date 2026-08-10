@@ -1,7 +1,6 @@
 'use client'
 
-// Demo authentication + Supabase-backed vocabulary storage.
-// Sentences remain in localStorage; saved words use the saved_words table.
+// Demo authentication + Supabase-backed vocabulary and sentence storage.
 
 import {
   createContext,
@@ -19,6 +18,12 @@ import type {
   SentenceEntry,
   Word,
 } from './huamaster-data'
+import {
+  deleteSavedSentenceById,
+  fetchSavedSentences,
+  importLocalSentences,
+  insertSavedSentence,
+} from './saved-sentences'
 import {
   deleteSavedWordByHanzi,
   deleteSavedWordById,
@@ -62,6 +67,8 @@ type AuthContextValue = {
   wordsLoading: boolean
   wordsError: string | null
   sentences: SentenceEntry[]
+  sentencesLoading: boolean
+  sentencesError: string | null
   signIn: (account: DemoAccount) => void
   signOut: () => void
   // words (Supabase)
@@ -70,10 +77,11 @@ type AuthContextValue = {
   removeWord: (id: string) => Promise<void>
   setWordStatus: (id: string, status: ReviewStatus) => Promise<void>
   refreshWords: () => Promise<void>
-  // sentences (localStorage)
+  // sentences (Supabase)
   isSentenceSaved: (source: string, translation: string) => boolean
-  saveSentence: (analysis: Analysis) => void
-  removeSentence: (id: string) => void
+  saveSentence: (analysis: Analysis) => Promise<void>
+  removeSentence: (id: string) => Promise<void>
+  refreshSentences: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -81,7 +89,7 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 const USER_KEY = 'huamaster:user'
 const sentencesKey = (email: string) => `huamaster:sentences:${email}`
 
-function loadSentences(email: string): SentenceEntry[] {
+function loadLocalSentences(email: string): SentenceEntry[] {
   if (typeof window === 'undefined') return []
   try {
     const raw = window.localStorage.getItem(sentencesKey(email))
@@ -93,15 +101,12 @@ function loadSentences(email: string): SentenceEntry[] {
   }
 }
 
-function saveSentences(email: string, sentences: SentenceEntry[]) {
+function clearLocalSentences(email: string) {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.setItem(
-      sentencesKey(email),
-      JSON.stringify({ sentences } satisfies StoredSentences),
-    )
+    window.localStorage.removeItem(sentencesKey(email))
   } catch {
-    // storage may be full/unavailable
+    // ignore
   }
 }
 
@@ -112,6 +117,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [wordsLoading, setWordsLoading] = useState(false)
   const [wordsError, setWordsError] = useState<string | null>(null)
   const [sentences, setSentences] = useState<SentenceEntry[]>([])
+  const [sentencesLoading, setSentencesLoading] = useState(false)
+  const [sentencesError, setSentencesError] = useState<string | null>(null)
 
   const loadWordsFromSupabase = useCallback(async (email: string) => {
     if (!isSupabaseConfigured()) {
@@ -136,6 +143,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const loadSentencesFromSupabase = useCallback(async (email: string) => {
+    if (!isSupabaseConfigured()) {
+      setSentences([])
+      setSentencesError(
+        'Supabase が未設定です。.env.local に NEXT_PUBLIC_SUPABASE_URL と NEXT_PUBLIC_SUPABASE_ANON_KEY を追加してください。',
+      )
+      return
+    }
+
+    setSentencesLoading(true)
+    setSentencesError(null)
+    try {
+      let entries = await fetchSavedSentences(email)
+
+      const localEntries = loadLocalSentences(email)
+      if (localEntries.length > 0) {
+        const imported = await importLocalSentences(
+          email,
+          localEntries,
+          entries,
+        )
+        if (imported > 0) {
+          entries = await fetchSavedSentences(email)
+        }
+        clearLocalSentences(email)
+      }
+
+      setSentences(entries)
+    } catch (err) {
+      console.error('[saved_sentences] fetch failed', err)
+      setSentences([])
+      setSentencesError(formatSupabaseError(err, '文章の取得'))
+    } finally {
+      setSentencesLoading(false)
+    }
+  }, [])
+
+  const loadUserData = useCallback(
+    async (email: string) => {
+      await Promise.all([
+        loadWordsFromSupabase(email),
+        loadSentencesFromSupabase(email),
+      ])
+    },
+    [loadWordsFromSupabase, loadSentencesFromSupabase],
+  )
+
   // Restore session on mount.
   useEffect(() => {
     async function restore() {
@@ -144,8 +198,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (raw) {
           const restored = JSON.parse(raw) as User
           setUser(restored)
-          setSentences(loadSentences(restored.email))
-          await loadWordsFromSupabase(restored.email)
+          await loadUserData(restored.email)
         }
       } catch {
         // ignore corrupt storage
@@ -153,13 +206,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setReady(true)
     }
     void restore()
-  }, [loadWordsFromSupabase])
-
-  // Persist sentences whenever they change (only when signed in).
-  useEffect(() => {
-    if (!user) return
-    saveSentences(user.email, sentences)
-  }, [user, sentences])
+  }, [loadUserData])
 
   const signIn = useCallback(
     (account: DemoAccount) => {
@@ -169,10 +216,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {
         // ignore
       }
-      setSentences(loadSentences(account.email))
-      void loadWordsFromSupabase(account.email)
+      void loadUserData(account.email)
     },
-    [loadWordsFromSupabase],
+    [loadUserData],
   )
 
   const signOut = useCallback(() => {
@@ -180,6 +226,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setWords([])
     setWordsError(null)
     setSentences([])
+    setSentencesError(null)
     try {
       window.localStorage.removeItem(USER_KEY)
     } catch {
@@ -191,6 +238,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user) return
     await loadWordsFromSupabase(user.email)
   }, [user, loadWordsFromSupabase])
+
+  const refreshSentences = useCallback(async () => {
+    if (!user) return
+    await loadSentencesFromSupabase(user.email)
+  }, [user, loadSentencesFromSupabase])
 
   const isWordSaved = useCallback(
     (hanzi: string) => words.some((w) => w.hanzi === hanzi),
@@ -270,33 +322,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [sentences],
   )
 
-  const saveSentence = useCallback((analysis: Analysis) => {
-    setSentences((prev) => {
-      const exists = prev.find(
+  const saveSentence = useCallback(
+    async (analysis: Analysis) => {
+      if (!user) return
+
+      const exists = sentences.find(
         (s) =>
           s.source === analysis.source &&
           s.translation === analysis.translation,
       )
-      if (exists) return prev.filter((s) => s.id !== exists.id)
-      return [
-        ...prev,
-        {
-          id: `s-${Date.now()}`,
-          source: analysis.source,
-          sourceLang: analysis.sourceLang,
-          translation: analysis.translation,
-          translationPinyin: analysis.translationPinyin,
-          words: analysis.words,
-          grammar: analysis.grammar,
-          addedAt: Date.now(),
-        },
-      ]
-    })
-  }, [])
 
-  const removeSentence = useCallback((id: string) => {
-    setSentences((prev) => prev.filter((s) => s.id !== id))
-  }, [])
+      if (exists) {
+        const previous = sentences
+        setSentences((prev) => prev.filter((s) => s.id !== exists.id))
+        try {
+          await deleteSavedSentenceById(user.email, exists.id)
+          setSentencesError(null)
+        } catch (err) {
+          console.error('[saved_sentences] delete failed', err)
+          setSentences(previous)
+          setSentencesError(formatSupabaseError(err, '文章の削除'))
+        }
+        return
+      }
+
+      try {
+        const entry = await insertSavedSentence(user.email, analysis)
+        setSentences((prev) => [
+          entry,
+          ...prev.filter(
+            (s) =>
+              !(
+                s.source === analysis.source &&
+                s.translation === analysis.translation
+              ),
+          ),
+        ])
+        setSentencesError(null)
+      } catch (err) {
+        console.error('[saved_sentences] insert failed', err)
+        setSentencesError(formatSupabaseError(err, '文章の保存'))
+      }
+    },
+    [user, sentences],
+  )
+
+  const removeSentence = useCallback(
+    async (id: string) => {
+      if (!user) return
+      const previous = sentences
+      setSentences((prev) => prev.filter((s) => s.id !== id))
+      try {
+        await deleteSavedSentenceById(user.email, id)
+        setSentencesError(null)
+      } catch (err) {
+        console.error('[saved_sentences] delete failed', err)
+        setSentences(previous)
+        setSentencesError(formatSupabaseError(err, '文章の削除'))
+      }
+    },
+    [user, sentences],
+  )
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -306,6 +392,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       wordsLoading,
       wordsError,
       sentences,
+      sentencesLoading,
+      sentencesError,
       signIn,
       signOut,
       isWordSaved,
@@ -316,6 +404,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isSentenceSaved,
       saveSentence,
       removeSentence,
+      refreshSentences,
     }),
     [
       user,
@@ -324,6 +413,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       wordsLoading,
       wordsError,
       sentences,
+      sentencesLoading,
+      sentencesError,
       signIn,
       signOut,
       isWordSaved,
@@ -334,6 +425,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isSentenceSaved,
       saveSentence,
       removeSentence,
+      refreshSentences,
     ],
   )
 

@@ -1,14 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { BookText, ChevronDown, GraduationCap, Trash2 } from 'lucide-react'
+import { BookText, Loader2, ChevronDown, GraduationCap, Trash2 } from 'lucide-react'
 import type { SentenceEntry } from '@/lib/huamaster-data'
 import { SpeakerButton } from './speaker-button'
 import { cn } from '@/lib/utils'
 
 type SavedSentencesProps = {
   entries: SentenceEntry[]
-  onRemove: (id: string) => void
+  loading?: boolean
+  error?: string | null
+  onRemove: (id: string) => void | Promise<void>
   onSpeak: (text: string, key: string) => void
   speakingKey: string | null
   audioSupported: boolean
@@ -17,6 +19,8 @@ type SavedSentencesProps = {
 
 export function SavedSentences({
   entries,
+  loading = false,
+  error = null,
   onRemove,
   onSpeak,
   speakingKey,
@@ -24,6 +28,25 @@ export function SavedSentences({
   showPinyin,
 }: SavedSentencesProps) {
   const sorted = [...entries].sort((a, b) => b.addedAt - a.addedAt)
+
+  if (error) {
+    return (
+      <p className="rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-xs text-destructive">
+        {error}
+      </p>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border bg-card/50 px-6 py-16 text-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden="true" />
+        <p className="mt-4 text-sm text-muted-foreground">
+          Supabase から文章を読み込み中…
+        </p>
+      </div>
+    )
+  }
 
   if (sorted.length === 0) {
     return (
@@ -67,7 +90,7 @@ function SentenceCard({
   showPinyin,
 }: {
   entry: SentenceEntry
-  onRemove: (id: string) => void
+  onRemove: (id: string) => void | Promise<void>
   onSpeak: (text: string, key: string) => void
   speakingKey: string | null
   audioSupported: boolean
@@ -82,7 +105,7 @@ function SentenceCard({
         <p className="text-xs text-muted-foreground">{entry.source}</p>
         <button
           type="button"
-          onClick={() => onRemove(entry.id)}
+          onClick={() => void onRemove(entry.id)}
           aria-label={`削除：${entry.translation}`}
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >

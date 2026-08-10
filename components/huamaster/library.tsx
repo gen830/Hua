@@ -15,10 +15,12 @@ type LibraryTab = 'sentences' | 'vocabulary'
 
 type LibraryProps = {
   sentences: SentenceEntry[]
+  sentencesLoading?: boolean
+  sentencesError?: string | null
   words: NotebookEntry[]
   wordsLoading?: boolean
   wordsError?: string | null
-  onRemoveSentence: (id: string) => void
+  onRemoveSentence: (id: string) => void | Promise<void>
   onSetWordStatus: (id: string, status: ReviewStatus) => void | Promise<void>
   onRemoveWord: (id: string) => void | Promise<void>
   onSpeak: (text: string, key: string) => void
@@ -30,6 +32,8 @@ type LibraryProps = {
 
 export function Library({
   sentences,
+  sentencesLoading = false,
+  sentencesError = null,
   words,
   wordsLoading = false,
   wordsError = null,
@@ -67,6 +71,8 @@ export function Library({
       {tab === 'sentences' ? (
         <SavedSentences
           entries={sentences}
+          loading={sentencesLoading}
+          error={sentencesError}
           onRemove={onRemoveSentence}
           onSpeak={onSpeak}
           speakingKey={speakingKey}

@@ -17,6 +17,13 @@ export function formatSupabaseError(error: unknown, action: string): string {
     return 'saved_words テーブルが見つかりません。Supabase ダッシュボード → SQL Editor で supabase/saved_words.sql を実行してください。'
   }
 
+  if (
+    err?.code === 'PGRST205' ||
+    message.includes('saved_sentences')
+  ) {
+    return 'saved_sentences テーブルが見つかりません。Supabase ダッシュボード → SQL Editor で supabase/saved_sentences.sql を実行してください。'
+  }
+
   if (message) {
     return `${action}に失敗しました: ${message}`
   }
