@@ -1,12 +1,12 @@
 'use client'
 
-import { BookOpen, Languages } from 'lucide-react'
+import { BookOpen, Languages, Settings } from 'lucide-react'
 import type { User } from '@/lib/auth-context'
 import { GoogleGlyph } from './google-glyph'
 import { UserMenu } from './user-menu'
 import { cn } from '@/lib/utils'
 
-export type View = 'translate' | 'library'
+export type View = 'translate' | 'library' | 'settings'
 
 type HeaderProps = {
   view: View
@@ -60,8 +60,14 @@ export function Header({
             active={view === 'library'}
             onClick={() => setView('library')}
             icon={<BookOpen className="h-4 w-4" aria-hidden="true" />}
-            label="保存ライブラリ"
+            label="保存"
             badge={savedCount}
+          />
+          <NavButton
+            active={view === 'settings'}
+            onClick={() => setView('settings')}
+            icon={<Settings className="h-4 w-4" aria-hidden="true" />}
+            label="設定"
           />
         </nav>
 

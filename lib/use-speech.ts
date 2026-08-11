@@ -20,13 +20,21 @@ function cacheAudio(text: string, url: string) {
  * Taiwan Mandarin TTS via edge-tts-universal (server) + HTMLAudioElement (client).
  * Works for full sentences and individual word chips.
  */
-export function useSpeech() {
+export function useSpeech(speechRate = 1) {
   const [supported] = useState(
     () => typeof window !== 'undefined' && typeof Audio !== 'undefined',
   )
   const [speakingKey, setSpeakingKey] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const speechRateRef = useRef(speechRate)
+
+  useEffect(() => {
+    speechRateRef.current = speechRate
+    if (audioRef.current) {
+      audioRef.current.playbackRate = speechRate
+    }
+  }, [speechRate])
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
@@ -72,6 +80,7 @@ export function useSpeech() {
         abortRef.current = null
 
         const audio = new Audio(url)
+        audio.playbackRate = speechRateRef.current
         audioRef.current = audio
         audio.onended = () => setSpeakingKey((k) => (k === id ? null : k))
         audio.onerror = () => setSpeakingKey((k) => (k === id ? null : k))

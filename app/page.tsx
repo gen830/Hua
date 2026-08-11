@@ -5,17 +5,21 @@ import { LogIn } from 'lucide-react'
 import { Header, type View } from '@/components/huamaster/header'
 import { Translator } from '@/components/huamaster/translator'
 import { Library } from '@/components/huamaster/library'
+import { SettingsPanel } from '@/components/huamaster/settings-panel'
 import { WordDetailModal } from '@/components/huamaster/word-detail-modal'
 import { SignInModal } from '@/components/huamaster/sign-in-modal'
 import { GoogleGlyph } from '@/components/huamaster/google-glyph'
 import { useSpeech } from '@/lib/use-speech'
 import { AuthProvider, useAuth } from '@/lib/auth-context'
+import { SettingsProvider, useSettings } from '@/lib/settings-context'
 import type { Analysis, Word } from '@/lib/huamaster-data'
 
 export default function Page() {
   return (
     <AuthProvider>
-      <HuaMaster />
+      <SettingsProvider>
+        <HuaMaster />
+      </SettingsProvider>
     </AuthProvider>
   )
 }
@@ -59,7 +63,8 @@ function HuaMaster() {
     window.history.replaceState({}, '', url)
   }, [])
 
-  const { supported: audioSupported, speak, speakingKey } = useSpeech()
+  const { speechRate } = useSettings()
+  const { supported: audioSupported, speak, speakingKey } = useSpeech(speechRate)
 
   const handleSpeak = useCallback(
     (text: string, key: string) => {
@@ -152,7 +157,7 @@ function HuaMaster() {
               isSentenceSaved={isSentenceSaved}
             />
           </>
-        ) : (
+        ) : view === 'library' ? (
           <>
             <div className="mb-6 sm:mb-8">
               <h1 className="text-2xl font-bold tracking-tight text-foreground text-balance sm:text-3xl">
@@ -182,6 +187,22 @@ function HuaMaster() {
             ) : (
               <SignInPrompt onSignIn={() => openSignIn()} />
             )}
+          </>
+        ) : (
+          <>
+            <div className="mb-6 sm:mb-8">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground text-balance sm:text-3xl">
+                設定
+              </h1>
+              <p className="mt-1.5 text-sm text-muted-foreground text-pretty">
+                読み上げ速度など、アプリの表示・操作を調整できます。
+              </p>
+            </div>
+            <SettingsPanel
+              onSpeakPreview={handleSpeak}
+              speakingKey={speakingKey}
+              audioSupported={audioSupported}
+            />
           </>
         )}
       </main>
