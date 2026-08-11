@@ -8,33 +8,17 @@ import {
   Check,
   Copy,
   Eraser,
-  Headphones,
   Languages,
   Loader2,
   Sparkles,
-  SpellCheck2,
-  Type,
 } from 'lucide-react'
-import {
-  EXAMPLE_PROMPTS,
-  type Analysis,
-  type Word,
-} from '@/lib/huamaster-data'
+import { type Analysis, type Word } from '@/lib/huamaster-data'
 import { cn } from '@/lib/utils'
-import { OptionToggle } from './option-toggle'
 import { GrammarCard } from './grammar-card'
 import { WordChip } from './word-chip'
 import { SpeakerButton } from './speaker-button'
 
-type Options = {
-  pinyin: boolean
-  bopomofo: boolean
-  audio: boolean
-}
-
 type TranslatorProps = {
-  options: Options
-  setOptions: (o: Options) => void
   onWordClick: (word: Word) => void
   isSaved: (word: Word) => boolean
   onSpeak: (text: string, key: string) => void
@@ -45,8 +29,6 @@ type TranslatorProps = {
 }
 
 export function Translator({
-  options,
-  setOptions,
   onWordClick,
   isSaved,
   onSpeak,
@@ -58,40 +40,98 @@ export function Translator({
   const [input, setInput] = useState('')
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
   const [copied, setCopied] = useState(false)
-  const [analyzing, setAnalyzing] = useState(false)
+  const [translating, setTranslating] = useState(false)
+  const [detailsLoading, setDetailsLoading] = useState(false)
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
+  const [detailsError, setDetailsError] = useState<string | null>(null)
 
   const canAnalyze = input.trim().length > 0
+  const analyzing = translating || detailsLoading
 
-  async function handleAnalyze() {
-    if (!canAnalyze || analyzing) return
-    setAnalyzing(true)
-    setAnalyzeError(null)
+  async function fetchAnalysisDetails(source: string, translation: string) {
+    setDetailsLoading(true)
+    setDetailsError(null)
 
     try {
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: input }),
+        body: JSON.stringify({
+          text: source,
+          translation,
+          phase: 'details',
+        }),
+      })
+
+      const data = (await res.json()) as
+        | { grammar: Analysis['grammar']; words: Analysis['words'] }
+        | { error?: string }
+
+      if (!res.ok) {
+        throw new Error(
+          'error' in data && data.error
+            ? data.error
+            : '文法・単語の分析に失敗しました',
+        )
+      }
+
+      setAnalysis((prev) =>
+        prev
+          ? {
+              ...prev,
+              grammar: data.grammar,
+              words: data.words,
+            }
+          : null,
+      )
+    } catch (err) {
+      setDetailsError(
+        err instanceof Error
+          ? err.message
+          : '文法・単語の分析に失敗しました',
+      )
+    } finally {
+      setDetailsLoading(false)
+    }
+  }
+
+  async function handleAnalyze() {
+    if (!canAnalyze || analyzing) return
+    setTranslating(true)
+    setDetailsLoading(false)
+    setAnalyzeError(null)
+    setDetailsError(null)
+    setAnalysis(null)
+
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: input, phase: 'translate' }),
       })
 
       const data = (await res.json()) as Analysis | { error?: string }
       if (!res.ok) {
         throw new Error(
-          'error' in data && data.error
-            ? data.error
-            : '翻訳・分析に失敗しました',
+          'error' in data && data.error ? data.error : '翻訳に失敗しました',
         )
       }
 
-      setAnalysis(data as Analysis)
+      const partial = data as Analysis
+      setAnalysis({
+        ...partial,
+        words: [],
+        grammar: [],
+      })
+
+      void fetchAnalysisDetails(partial.source, partial.translation)
     } catch (err) {
       setAnalysis(null)
       setAnalyzeError(
-        err instanceof Error ? err.message : '翻訳・分析に失敗しました',
+        err instanceof Error ? err.message : '翻訳に失敗しました',
       )
     } finally {
-      setAnalyzing(false)
+      setTranslating(false)
     }
   }
 
@@ -99,6 +139,7 @@ export function Translator({
     setInput('')
     setAnalysis(null)
     setAnalyzeError(null)
+    setDetailsError(null)
   }
 
   async function handleCopy() {
@@ -112,7 +153,7 @@ export function Translator({
     }
   }
 
-  const audioAvailable = options.audio && audioSupported
+  const audioAvailable = audioSupported
 
   return (
     <div className="flex flex-col gap-6">
@@ -145,42 +186,6 @@ export function Translator({
           className="w-full resize-none rounded-2xl border border-input bg-background px-4 py-3 text-base leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
 
-        {/* Example prompts */}
-        <div className="mt-3 flex flex-wrap gap-2">
-          {EXAMPLE_PROMPTS.map((ex) => (
-            <button
-              key={ex}
-              type="button"
-              onClick={() => setInput(ex)}
-              className="rounded-full border border-border bg-muted/50 px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
-            >
-              {ex}
-            </button>
-          ))}
-        </div>
-
-        {/* Options */}
-        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <OptionToggle
-            label="ピンイン"
-            icon={Type}
-            checked={options.pinyin}
-            onChange={(v) => setOptions({ ...options, pinyin: v })}
-          />
-          <OptionToggle
-            label="注音 (Bopomofo)"
-            icon={SpellCheck2}
-            checked={options.bopomofo}
-            onChange={(v) => setOptions({ ...options, bopomofo: v })}
-          />
-          <OptionToggle
-            label="音声再生"
-            icon={Headphones}
-            checked={options.audio}
-            onChange={(v) => setOptions({ ...options, audio: v })}
-          />
-        </div>
-
         {/* Actions */}
         <div className="mt-5 flex flex-col gap-2 sm:flex-row">
           <button
@@ -189,12 +194,16 @@ export function Translator({
             disabled={!canAnalyze || analyzing}
             className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-3.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {analyzing ? (
+            {translating ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             ) : (
               <Sparkles className="h-4 w-4" aria-hidden="true" />
             )}
-            {analyzing ? 'Gemini で分析中…' : '翻訳して分析'}
+            {translating
+              ? '翻訳中…'
+              : detailsLoading
+                ? '分析を更新中…'
+                : '翻訳して分析'}
           </button>
           <button
             type="button"
@@ -209,6 +218,11 @@ export function Translator({
         {analyzeError && (
           <p className="mt-3 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-xs text-destructive">
             {analyzeError}
+          </p>
+        )}
+        {detailsError && (
+          <p className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">
+            {detailsError}
           </p>
         )}
       </section>
@@ -249,11 +263,9 @@ export function Translator({
             <p className="mt-4 font-cjk text-3xl font-medium leading-snug text-foreground text-balance sm:text-4xl">
               {analysis.translation}
             </p>
-            {options.pinyin && (
-              <p className="mt-2 text-base font-medium text-primary">
-                {analysis.translationPinyin}
-              </p>
-            )}
+            <p className="mt-2 text-base font-medium text-primary">
+              {analysis.translationPinyin}
+            </p>
             <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
               <span>{analysis.sourceLang}</span>
               <ArrowRight className="h-3 w-3" aria-hidden="true" />
@@ -269,8 +281,9 @@ export function Translator({
                 <button
                   type="button"
                   onClick={() => onSaveSentence(analysis)}
+                  disabled={detailsLoading}
                   className={cn(
-                    'mt-5 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    'mt-5 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60',
                     saved
                       ? 'border border-primary/30 bg-primary/10 text-primary hover:bg-primary/15'
                       : 'bg-primary text-primary-foreground hover:bg-primary/90',
@@ -299,33 +312,59 @@ export function Translator({
               <h3 className="text-base font-semibold text-foreground">
                 単語の分解
               </h3>
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                {analysis.words.length} 語
-              </span>
+              {detailsLoading ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                  分析中
+                </span>
+              ) : (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                  {analysis.words.length} 語
+                </span>
+              )}
             </div>
             <p className="mb-4 text-xs text-muted-foreground">
               単語をタップすると詳細が表示されます
             </p>
-            <div className="flex flex-wrap gap-2.5">
-              {analysis.words.map((word, i) => (
-                <WordChip
-                  key={`${word.hanzi}-${i}`}
-                  word={word}
-                  index={i}
-                  showPinyin={options.pinyin}
-                  showBopomofo={options.bopomofo}
-                  saved={isSaved(word)}
-                  onClick={() => onWordClick(word)}
-                />
-              ))}
-            </div>
+            {detailsLoading && analysis.words.length === 0 ? (
+              <DetailsSkeleton />
+            ) : (
+              <div className="flex flex-wrap gap-2.5">
+                {analysis.words.map((word, i) => (
+                  <WordChip
+                    key={`${word.hanzi}-${i}`}
+                    word={word}
+                    index={i}
+                    showPinyin
+                    showBopomofo
+                    saved={isSaved(word)}
+                    onClick={() => onWordClick(word)}
+                  />
+                ))}
+              </div>
+            )}
           </section>
 
           {/* Grammar */}
-          <GrammarCard notes={analysis.grammar} />
+          {detailsLoading && analysis.grammar.length === 0 ? (
+            <section className="rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-6">
+              <div className="mb-4 flex items-center gap-2">
+                <h3 className="text-base font-semibold text-foreground">
+                  文法解説
+                </h3>
+                <Loader2
+                  className="h-4 w-4 animate-spin text-muted-foreground"
+                  aria-hidden="true"
+                />
+              </div>
+              <DetailsSkeleton rows={2} />
+            </section>
+          ) : (
+            <GrammarCard notes={analysis.grammar} />
+          )}
         </div>
-      ) : analyzing ? (
-        <AnalyzingState />
+      ) : translating ? (
+        <AnalyzingState phase="translate" />
       ) : (
         <EmptyState />
       )}
@@ -333,17 +372,35 @@ export function Translator({
   )
 }
 
-function AnalyzingState() {
+function DetailsSkeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="flex flex-wrap gap-2.5">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div
+          key={i}
+          className="h-16 w-24 animate-pulse rounded-2xl bg-muted"
+          aria-hidden="true"
+        />
+      ))}
+    </div>
+  )
+}
+
+function AnalyzingState({ phase }: { phase: 'translate' | 'full' }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border bg-card/50 px-6 py-14 text-center">
       <span className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-accent-foreground">
         <Loader2 className="h-7 w-7 animate-spin" aria-hidden="true" />
       </span>
       <p className="mt-4 text-sm font-medium text-foreground">
-        Gemini が翻訳と文法解説を生成中…
+        {phase === 'translate'
+          ? '台湾華語に翻訳中…'
+          : 'Gemini が翻訳と文法解説を生成中…'}
       </p>
       <p className="mt-1 max-w-xs text-xs text-muted-foreground text-pretty">
-        台湾華語の訳・ピンイン・注音・単語カード・文法ノートを作成しています。
+        {phase === 'translate'
+          ? '訳文ができ次第すぐ表示します。文法・単語はその後に続けて読み込みます。'
+          : '台湾華語の訳・ピンイン・注音・単語カード・文法ノートを作成しています。'}
       </p>
     </div>
   )

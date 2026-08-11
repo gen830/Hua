@@ -42,11 +42,6 @@ function HuaMaster() {
   } = useAuth()
 
   const [view, setView] = useState<View>('translate')
-  const [options, setOptions] = useState({
-    pinyin: true,
-    bopomofo: true,
-    audio: true,
-  })
   const [selectedWord, setSelectedWord] = useState<Word | null>(null)
   const [signInOpen, setSignInOpen] = useState(false)
   const [signInReason, setSignInReason] = useState<string | undefined>(undefined)
@@ -68,10 +63,9 @@ function HuaMaster() {
 
   const handleSpeak = useCallback(
     (text: string, key: string) => {
-      if (!options.audio) return
       speak(text, key)
     },
-    [options.audio, speak],
+    [speak],
   )
 
   const openSignIn = useCallback((reason?: string) => {
@@ -149,8 +143,6 @@ function HuaMaster() {
               </p>
             </div>
             <Translator
-              options={options}
-              setOptions={setOptions}
               onWordClick={setSelectedWord}
               isSaved={isSaved}
               onSpeak={handleSpeak}
@@ -184,8 +176,8 @@ function HuaMaster() {
                 onSpeak={handleSpeak}
                 speakingKey={speakingKey}
                 audioSupported={audioSupported}
-                showPinyin={options.pinyin}
-                showBopomofo={options.bopomofo}
+                showPinyin
+                showBopomofo
               />
             ) : (
               <SignInPrompt onSignIn={() => openSignIn()} />

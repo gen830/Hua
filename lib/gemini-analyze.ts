@@ -12,24 +12,45 @@ type GeminiWord = {
   pos: string
 }
 
-type GeminiAnalysisPayload = {
+type GeminiTranslatePayload = {
   sourceLang: string
   translation: string
+}
+
+type GeminiDetailsPayload = {
   grammar: GrammarNote[]
   words: GeminiWord[]
 }
 
-const ANALYSIS_JSON_SCHEMA = {
+export type GeminiTranslateResult = {
+  sourceLang: string
+  translation: string
+  translationPinyin: string
+}
+
+export type GeminiDetailsResult = {
+  grammar: GrammarNote[]
+  words: Word[]
+}
+
+const TRANSLATE_JSON_SCHEMA = {
   type: Type.OBJECT,
   properties: {
     sourceLang: {
       type: Type.STRING,
-      description: 'Detected source language label in Japanese, e.g. 日本語 or 繁體中文',
+      description: 'Short Japanese label, e.g. 日本語 or 繁體中文',
     },
     translation: {
       type: Type.STRING,
-      description: 'Taiwan Mandarin translation in Traditional Chinese',
+      description: 'Taiwan Mandarin in Traditional Chinese',
     },
+  },
+  required: ['sourceLang', 'translation'],
+}
+
+const DETAILS_JSON_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
     grammar: {
       type: Type.ARRAY,
       items: {
@@ -54,30 +75,39 @@ const ANALYSIS_JSON_SCHEMA = {
       },
     },
   },
-  required: ['sourceLang', 'translation', 'grammar', 'words'],
+  required: ['grammar', 'words'],
 }
 
-function buildPrompt(source: string): string {
-  return `You are HuaMaster, a Taiwan Mandarin (Traditional Chinese) tutor for Japanese speakers.
+function buildTranslatePrompt(source: string): string {
+  return `Translate into natural Taiwan Mandarin (繁體中文). Never use Simplified Chinese. Prefer Taiwan vocabulary.
 
-Analyze the following user input and produce a learning-friendly response.
-
-User input:
+Input:
 """
 ${source}
 """
 
-Instructions:
-- If the input is Japanese, translate it into natural Taiwan Mandarin (繁體中文, Taiwan usage).
-- If the input is already Traditional Chinese, polish it naturally for Taiwan usage if needed; otherwise keep it.
-- Never use Simplified Chinese characters.
-- Prefer Taiwan vocabulary (e.g. 軟體, 影片, 公車, 捷運).
-- Write grammar notes in Japanese for beginner learners (2–4 notes).
-- Segment the translation into vocabulary items in reading order.
-- Keep natural compound words together (e.g. 牛肉麵, not splitting into 牛肉 + 麵).
-- For each word provide: hanzi, Japanese meaning (jp), part of speech in Japanese (pos).
-- Do NOT output pinyin or bopomofo — those are added locally.
-- sourceLang must be a short Japanese label such as "日本語" or "繁體中文".`
+Return JSON only:
+- sourceLang: short Japanese label (日本語 or 繁體中文)
+- translation: Taiwan Mandarin sentence`
+}
+
+function buildDetailsPrompt(source: string, translation: string): string {
+  return `You are HuaMaster, a Taiwan Mandarin tutor for Japanese speakers.
+
+Source:
+"""
+${source}
+"""
+
+Translation (Traditional Chinese, Taiwan):
+"""
+${translation}
+"""
+
+Return JSON only:
+- grammar: 2–3 beginner-friendly notes in Japanese (title + detail)
+- words: vocabulary in reading order; keep compounds together (e.g. 牛肉麵); each with hanzi, jp (Japanese gloss), pos (Japanese part-of-speech label)
+- Do NOT output pinyin or bopomofo`
 }
 
 function toWord(raw: GeminiWord): Word {
@@ -111,7 +141,6 @@ function isUnresolvedWord(word: Word): boolean {
   return !word.jp?.trim() || word.jp === '（辞書未登録）'
 }
 
-/** Merge consecutive unresolved chips into a known compound (e.g. 牛肉 + 麵 → 牛肉麵). */
 function coalesceWords(words: Word[], geminiWords: GeminiWord[]): Word[] {
   const byHanzi = new Map(geminiWords.map((w) => [w.hanzi, w]))
   const result: Word[] = []
@@ -216,6 +245,7 @@ function mergeWords(translation: string, geminiWords: GeminiWord[]): Word[] {
 }
 
 function isRetryableModelError(error: unknown): boolean {
+  if (error instanceof SyntaxError) return true
   if (!(error instanceof ApiError)) return false
   if (error.status === 404) return true
   if (error.status === 429) {
@@ -225,18 +255,42 @@ function isRetryableModelError(error: unknown): boolean {
   return false
 }
 
-async function generateAnalysis(
-  source: string,
+function parseGeminiJson<T>(text: string): T {
+  const trimmed = text.trim()
+  try {
+    return JSON.parse(trimmed) as T
+  } catch {
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim()
+    if (fenced) {
+      return JSON.parse(fenced) as T
+    }
+    const start = trimmed.indexOf('{')
+    const end = trimmed.lastIndexOf('}')
+    if (start >= 0 && end > start) {
+      return JSON.parse(trimmed.slice(start, end + 1)) as T
+    }
+    throw new SyntaxError(
+      `Gemini JSON parse failed: ${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}`,
+    )
+  }
+}
+
+async function callGeminiJson<T>(
+  prompt: string,
+  schema: object,
+  maxOutputTokens: number,
   model: string,
-): Promise<Omit<Analysis, 'source'>> {
+): Promise<T> {
   const ai = createGeminiClient()
 
   const response = await ai.models.generateContent({
     model,
-    contents: buildPrompt(source),
+    contents: prompt,
     config: {
       responseMimeType: 'application/json',
-      responseJsonSchema: ANALYSIS_JSON_SCHEMA,
+      responseJsonSchema: schema,
+      maxOutputTokens,
+      temperature: 0.2,
     },
   })
 
@@ -245,37 +299,88 @@ async function generateAnalysis(
     throw new Error('Gemini returned an empty response')
   }
 
-  const parsed = JSON.parse(text) as GeminiAnalysisPayload
-
-  return {
-    sourceLang: parsed.sourceLang,
-    translation: parsed.translation,
-    translationPinyin: sentencePinyin(parsed.translation),
-    grammar: parsed.grammar ?? [],
-    words: mergeWords(parsed.translation, parsed.words ?? []),
+  if (process.env.NODE_ENV === 'development') {
+    console.info(`[gemini] ${model} raw (${text.length} chars):`, text.slice(0, 200))
   }
+
+  return parseGeminiJson<T>(text)
 }
 
-export async function analyzeWithGemini(
-  source: string,
-): Promise<Omit<Analysis, 'source'>> {
+async function withGeminiModels<T>(
+  label: string,
+  run: (model: string) => Promise<T>,
+): Promise<T> {
   const models = getGeminiModelsToTry()
   let lastError: unknown
 
   for (const model of models) {
     try {
       if (process.env.NODE_ENV === 'development') {
-        console.info(`[analyze] Trying model: ${model}`)
+        console.info(`[${label}] Trying model: ${model}`)
       }
-      return await generateAnalysis(source, model)
+      return await run(model)
     } catch (error) {
       lastError = error
       if (!isRetryableModelError(error)) throw error
-      console.warn(`[analyze] Model unavailable: ${model}`, error)
+      console.warn(`[${label}] Model unavailable: ${model}`, error)
     }
   }
 
   throw lastError ?? new Error('No Gemini models available')
+}
+
+/** Fast path: translation only (shown first in the UI). */
+export async function translateWithGemini(
+  source: string,
+): Promise<GeminiTranslateResult> {
+  return withGeminiModels('translate', async (model) => {
+    const parsed = await callGeminiJson<GeminiTranslatePayload>(
+      buildTranslatePrompt(source),
+      TRANSLATE_JSON_SCHEMA,
+      1024,
+      model,
+    )
+
+    return {
+      sourceLang: parsed.sourceLang,
+      translation: parsed.translation,
+      translationPinyin: sentencePinyin(parsed.translation),
+    }
+  })
+}
+
+/** Slower path: grammar + word glosses (loaded after translation). */
+export async function analyzeDetailsWithGemini(
+  source: string,
+  translation: string,
+): Promise<GeminiDetailsResult> {
+  return withGeminiModels('details', async (model) => {
+    const parsed = await callGeminiJson<GeminiDetailsPayload>(
+      buildDetailsPrompt(source, translation),
+      DETAILS_JSON_SCHEMA,
+      2048,
+      model,
+    )
+
+    return {
+      grammar: parsed.grammar ?? [],
+      words: mergeWords(translation, parsed.words ?? []),
+    }
+  })
+}
+
+/** Single-call fallback (translate + details sequentially on server). */
+export async function analyzeWithGemini(
+  source: string,
+): Promise<Omit<Analysis, 'source'>> {
+  const { translateWithGoogle } = await import('./google-translate')
+  const translated = await translateWithGoogle(source)
+  const details = await analyzeDetailsWithGemini(source, translated.translation)
+
+  return {
+    ...translated,
+    ...details,
+  }
 }
 
 export function isZeroQuotaError(error: unknown): boolean {

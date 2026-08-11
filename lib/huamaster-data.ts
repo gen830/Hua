@@ -89,12 +89,3 @@ export const DICTIONARY: Record<string, Word> = {
   碗: { hanzi: '碗', pinyin: 'wǎn', bopomofo: 'ㄨㄢˇ', jp: '〜杯（丼の量詞）', pos: '量詞' },
   杯: { hanzi: '杯', pinyin: 'bēi', bopomofo: 'ㄅㄟ', jp: '〜杯（コップの量詞）', pos: '量詞' },
 }
-
-export const EXAMPLE_PROMPTS = [
-  '牛肉麺が食べたいです',
-  'トイレはどこですか？',
-  'これはいくらですか？',
-  'タピオカミルクティーを一杯ください、ありがとう',
-  '我想吃牛肉麵',
-  '請問廁所在哪裡？',
-]
