@@ -1,4 +1,5 @@
 import { sentencePinyin } from './chinese-romanization'
+import { isChineseSourceLang } from './huamaster-data'
 import type { GeminiTranslateResult } from './gemini-analyze'
 
 const TRANSLATE_ENDPOINT =
@@ -128,6 +129,54 @@ function pickTargetLanguage(sourceLanguage: string): 'ja' | 'zh-TW' {
   return 'zh-TW'
 }
 
+async function translateWithTarget(
+  texts: string[],
+  source: string,
+  target: string,
+): Promise<string[]> {
+  if (texts.length === 0) return []
+
+  const payload = await callGoogleTranslateApi<GoogleTranslateResponse>(
+    TRANSLATE_ENDPOINT,
+    {
+      q: texts,
+      source,
+      target,
+      format: 'text',
+    },
+  )
+
+  const translations = payload.data?.translations ?? []
+  return texts.map(
+    (text, index) => translations[index]?.translatedText?.trim() || text,
+  )
+}
+
+/** Batch translate Traditional Chinese glosses into Japanese. */
+export async function translateTextsToJapanese(
+  texts: string[],
+): Promise<Map<string, string>> {
+  const unique = [...new Set(texts.map((t) => t.trim()).filter(Boolean))]
+  const result = new Map<string, string>()
+  if (unique.length === 0) return result
+
+  if (!resolveGoogleTranslateApiKey()) {
+    for (const text of unique) result.set(text, text)
+    return result
+  }
+
+  try {
+    const translated = await translateWithTarget(unique, 'zh-TW', 'ja')
+    unique.forEach((text, index) => {
+      result.set(text, translated[index] ?? text)
+    })
+  } catch {
+    for (const text of unique) result.set(text, text)
+  }
+
+  return result
+}
+
 /** Fast path: Google Cloud Translation (ja ↔ zh-TW). */
 export async function translateWithGoogle(
   source: string,
@@ -135,25 +184,17 @@ export async function translateWithGoogle(
   const detected = await detectLanguage(source)
   const target = pickTargetLanguage(detected)
 
-  const payload = await callGoogleTranslateApi<GoogleTranslateResponse>(
-    TRANSLATE_ENDPOINT,
-    {
-      q: source,
-      source: detected,
-      target,
-      format: 'text',
-    },
-  )
-
-  const translation = payload.data?.translations?.[0]?.translatedText?.trim()
+  const [translation] = await translateWithTarget([source], detected, target)
   if (!translation) {
     throw new Error('Google Translation API returned an empty translation')
   }
 
+  const inputIsChinese = isChineseSourceLang(sourceLangLabel(detected))
+
   return {
     sourceLang: sourceLangLabel(detected),
     translation,
-    translationPinyin:
-      target === 'zh-TW' ? sentencePinyin(translation) : '',
+    translationPinyin: inputIsChinese ? '' : sentencePinyin(translation),
+    sourcePinyin: inputIsChinese ? sentencePinyin(source) : '',
   }
 }

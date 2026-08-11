@@ -1,6 +1,6 @@
 // HuaMaster shared types and offline vocabulary lookup.
-// Translation and grammar analysis are powered by Gemini (see /api/analyze).
-// Pinyin and bopomofo are generated locally (see lib/chinese-romanization.ts).
+// Translation uses Google Cloud Translation; grammar uses Gemini on demand.
+// Word breakdown uses jieba + Moedict, with Google Translate for Japanese glosses.
 
 export type Word = {
   /** Traditional Chinese surface form, e.g. 牛肉麵 */
@@ -34,6 +34,7 @@ export type SentenceEntry = {
   sourceLang: string
   translation: string
   translationPinyin: string
+  sourcePinyin: string
   words: Word[]
   grammar: GrammarNote[]
   addedAt: number
@@ -44,14 +45,33 @@ export type Analysis = {
   source: string
   /** Detected source language label */
   sourceLang: string
-  /** Translated Taiwanese Mandarin sentence */
+  /** Translated sentence (TW Mandarin when source is Japanese, Japanese when source is Chinese) */
   translation: string
-  /** Full-sentence pinyin */
+  /** Pinyin for the Chinese sentence shown for study (translation or source) */
   translationPinyin: string
-  /** Segmented words making up the translation */
+  /** Pinyin for source when the user entered Traditional Chinese */
+  sourcePinyin: string
+  /** Segmented words for the Chinese sentence being studied */
   words: Word[]
   /** Beginner-friendly grammar notes */
   grammar: GrammarNote[]
+}
+
+export function isChineseSourceLang(sourceLang: string): boolean {
+  return sourceLang === '繁體中文' || sourceLang.includes('中文')
+}
+
+/** Chinese text used for word segmentation and TTS. */
+export function chineseStudyText(analysis: Pick<Analysis, 'source' | 'translation' | 'sourceLang'>): string {
+  return isChineseSourceLang(analysis.sourceLang)
+    ? analysis.source
+    : analysis.translation
+}
+
+export function chineseStudyPinyin(analysis: Pick<Analysis, 'sourcePinyin' | 'translationPinyin' | 'sourceLang'>): string {
+  return isChineseSourceLang(analysis.sourceLang)
+    ? analysis.sourcePinyin
+    : analysis.translationPinyin
 }
 
 // Core vocabulary database — reused across samples and word lookups.

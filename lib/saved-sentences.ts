@@ -23,6 +23,7 @@ function rowToEntry(row: SavedSentenceRow): SentenceEntry {
     sourceLang: row.source_lang,
     translation: row.translation,
     translationPinyin: row.translation_pinyin,
+    sourcePinyin: '',
     words: row.words ?? [],
     grammar: row.grammar ?? [],
     addedAt: new Date(row.added_at).getTime(),
@@ -114,6 +115,7 @@ export async function importLocalSentences(
       sourceLang: entry.sourceLang,
       translation: entry.translation,
       translationPinyin: entry.translationPinyin,
+      sourcePinyin: entry.sourcePinyin ?? '',
       words: entry.words,
       grammar: entry.grammar,
     })

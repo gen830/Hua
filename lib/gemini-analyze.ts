@@ -26,6 +26,7 @@ export type GeminiTranslateResult = {
   sourceLang: string
   translation: string
   translationPinyin: string
+  sourcePinyin: string
 }
 
 export type GeminiDetailsResult = {
@@ -48,7 +49,7 @@ const TRANSLATE_JSON_SCHEMA = {
   required: ['sourceLang', 'translation'],
 }
 
-const DETAILS_JSON_SCHEMA = {
+const GRAMMAR_JSON_SCHEMA = {
   type: Type.OBJECT,
   properties: {
     grammar: {
@@ -62,6 +63,13 @@ const DETAILS_JSON_SCHEMA = {
         required: ['title', 'detail'],
       },
     },
+  },
+  required: ['grammar'],
+}
+
+const WORDS_JSON_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
     words: {
       type: Type.ARRAY,
       items: {
@@ -74,6 +82,15 @@ const DETAILS_JSON_SCHEMA = {
         required: ['hanzi', 'jp', 'pos'],
       },
     },
+  },
+  required: ['words'],
+}
+
+const DETAILS_JSON_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    grammar: GRAMMAR_JSON_SCHEMA.properties.grammar,
+    words: WORDS_JSON_SCHEMA.properties.words,
   },
   required: ['grammar', 'words'],
 }
@@ -89,6 +106,64 @@ ${source}
 Return JSON only:
 - sourceLang: short Japanese label (日本語 or 繁體中文)
 - translation: Taiwan Mandarin sentence`
+}
+
+function buildGrammarPrompt(source: string, translation: string): string {
+  return `You are HuaMaster, a Taiwan Mandarin tutor for Japanese speakers.
+
+Source:
+"""
+${source}
+"""
+
+Translation (Traditional Chinese, Taiwan):
+"""
+${translation}
+"""
+
+Return JSON only:
+- grammar: 2–3 beginner-friendly notes in Japanese (title + detail)`
+}
+
+function buildUnknownWordsPrompt(
+  source: string,
+  translation: string,
+  hanziList: string[],
+): string {
+  return `You are HuaMaster, a Taiwan Mandarin tutor for Japanese speakers.
+
+Source:
+"""
+${source}
+"""
+
+Translation (Traditional Chinese, Taiwan):
+"""
+${translation}
+"""
+
+Return JSON only:
+- words: Japanese glosses for ONLY these hanzi (skip any not listed): ${hanziList.join('、')}
+- Each item: hanzi, jp (Japanese meaning), pos (Japanese part-of-speech label)
+- Do NOT output pinyin or bopomofo`
+}
+
+function buildWordsPrompt(source: string, translation: string): string {
+  return `You are HuaMaster, a Taiwan Mandarin tutor for Japanese speakers.
+
+Source:
+"""
+${source}
+"""
+
+Translation (Traditional Chinese, Taiwan):
+"""
+${translation}
+"""
+
+Return JSON only:
+- words: vocabulary in reading order; keep compounds together (e.g. 牛肉麵); each with hanzi, jp (Japanese gloss), pos (Japanese part-of-speech label)
+- Do NOT output pinyin or bopomofo`
 }
 
 function buildDetailsPrompt(source: string, translation: string): string {
@@ -345,11 +420,70 @@ export async function translateWithGemini(
       sourceLang: parsed.sourceLang,
       translation: parsed.translation,
       translationPinyin: sentencePinyin(parsed.translation),
+      sourcePinyin: '',
     }
   })
 }
 
-/** Slower path: grammar + word glosses (loaded after translation). */
+/** Word glosses for tokens missing from Moedict / local dictionary. */
+export async function analyzeUnknownWordsWithGemini(
+  source: string,
+  translation: string,
+  hanziList: string[],
+): Promise<GeminiWord[]> {
+  if (hanziList.length === 0) return []
+
+  return withGeminiModels('unknown-words', async (model) => {
+    const parsed = await callGeminiJson<{ words: GeminiWord[] }>(
+      buildUnknownWordsPrompt(source, translation, hanziList),
+      WORDS_JSON_SCHEMA,
+      1024,
+      model,
+    )
+
+    return parsed.words ?? []
+  })
+}
+
+/** Word glosses (loaded automatically after translation). */
+export async function analyzeWordsWithGemini(
+  source: string,
+  translation: string,
+): Promise<{ words: Word[] }> {
+  return withGeminiModels('words', async (model) => {
+    const parsed = await callGeminiJson<{ words: GeminiWord[] }>(
+      buildWordsPrompt(source, translation),
+      WORDS_JSON_SCHEMA,
+      1536,
+      model,
+    )
+
+    return {
+      words: mergeWords(translation, parsed.words ?? []),
+    }
+  })
+}
+
+/** Grammar notes (loaded on user request). */
+export async function analyzeGrammarWithGemini(
+  source: string,
+  translation: string,
+): Promise<{ grammar: GrammarNote[] }> {
+  return withGeminiModels('grammar', async (model) => {
+    const parsed = await callGeminiJson<{ grammar: GrammarNote[] }>(
+      buildGrammarPrompt(source, translation),
+      GRAMMAR_JSON_SCHEMA,
+      1024,
+      model,
+    )
+
+    return {
+      grammar: parsed.grammar ?? [],
+    }
+  })
+}
+
+/** Legacy: grammar + word glosses in one Gemini call. */
 export async function analyzeDetailsWithGemini(
   source: string,
   translation: string,
@@ -375,11 +509,16 @@ export async function analyzeWithGemini(
 ): Promise<Omit<Analysis, 'source'>> {
   const { translateWithGoogle } = await import('./google-translate')
   const translated = await translateWithGoogle(source)
-  const details = await analyzeDetailsWithGemini(source, translated.translation)
+  const { words } = await analyzeWords(
+    source,
+    translated.translation,
+    translated.sourceLang,
+  )
 
   return {
     ...translated,
-    ...details,
+    words,
+    grammar: [],
   }
 }
 

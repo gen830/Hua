@@ -8,11 +8,12 @@ import {
   Check,
   Copy,
   Eraser,
+  GraduationCap,
   Languages,
   Loader2,
   Sparkles,
 } from 'lucide-react'
-import { type Analysis, type Word } from '@/lib/huamaster-data'
+import { type Analysis, chineseStudyPinyin, chineseStudyText, isChineseSourceLang } from '@/lib/huamaster-data'
 import { cn } from '@/lib/utils'
 import { GrammarCard } from './grammar-card'
 import { WordChip } from './word-chip'
@@ -41,16 +42,18 @@ export function Translator({
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
   const [copied, setCopied] = useState(false)
   const [translating, setTranslating] = useState(false)
-  const [detailsLoading, setDetailsLoading] = useState(false)
+  const [wordsLoading, setWordsLoading] = useState(false)
+  const [grammarLoading, setGrammarLoading] = useState(false)
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
-  const [detailsError, setDetailsError] = useState<string | null>(null)
+  const [wordsError, setWordsError] = useState<string | null>(null)
+  const [grammarError, setGrammarError] = useState<string | null>(null)
 
   const canAnalyze = input.trim().length > 0
-  const analyzing = translating || detailsLoading
+  const analyzing = translating || wordsLoading
 
-  async function fetchAnalysisDetails(source: string, translation: string) {
-    setDetailsLoading(true)
-    setDetailsError(null)
+  async function fetchWords(source: string, translation: string, sourceLang: string) {
+    setWordsLoading(true)
+    setWordsError(null)
 
     try {
       const res = await fetch('/api/analyze', {
@@ -59,19 +62,66 @@ export function Translator({
         body: JSON.stringify({
           text: source,
           translation,
-          phase: 'details',
+          sourceLang,
+          phase: 'words',
         }),
       })
 
       const data = (await res.json()) as
-        | { grammar: Analysis['grammar']; words: Analysis['words'] }
+        | { words: Analysis['words'] }
         | { error?: string }
 
       if (!res.ok) {
         throw new Error(
           'error' in data && data.error
             ? data.error
-            : '文法・単語の分析に失敗しました',
+            : '単語の分析に失敗しました',
+        )
+      }
+
+      setAnalysis((prev) =>
+        prev
+          ? {
+              ...prev,
+              words: data.words,
+            }
+          : null,
+      )
+    } catch (err) {
+      setWordsError(
+        err instanceof Error ? err.message : '単語の分析に失敗しました',
+      )
+    } finally {
+      setWordsLoading(false)
+    }
+  }
+
+  async function fetchGrammar() {
+    if (!analysis || grammarLoading || analysis.grammar.length > 0) return
+
+    setGrammarLoading(true)
+    setGrammarError(null)
+
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: analysis.source,
+          translation: analysis.translation,
+          phase: 'grammar',
+        }),
+      })
+
+      const data = (await res.json()) as
+        | { grammar: Analysis['grammar'] }
+        | { error?: string }
+
+      if (!res.ok) {
+        throw new Error(
+          'error' in data && data.error
+            ? data.error
+            : '文法解説の取得に失敗しました',
         )
       }
 
@@ -80,27 +130,28 @@ export function Translator({
           ? {
               ...prev,
               grammar: data.grammar,
-              words: data.words,
             }
           : null,
       )
     } catch (err) {
-      setDetailsError(
+      setGrammarError(
         err instanceof Error
           ? err.message
-          : '文法・単語の分析に失敗しました',
+          : '文法解説の取得に失敗しました',
       )
     } finally {
-      setDetailsLoading(false)
+      setGrammarLoading(false)
     }
   }
 
   async function handleAnalyze() {
     if (!canAnalyze || analyzing) return
     setTranslating(true)
-    setDetailsLoading(false)
+    setWordsLoading(false)
+    setGrammarLoading(false)
     setAnalyzeError(null)
-    setDetailsError(null)
+    setWordsError(null)
+    setGrammarError(null)
     setAnalysis(null)
 
     try {
@@ -120,11 +171,16 @@ export function Translator({
       const partial = data as Analysis
       setAnalysis({
         ...partial,
+        sourcePinyin: partial.sourcePinyin ?? '',
         words: [],
         grammar: [],
       })
 
-      void fetchAnalysisDetails(partial.source, partial.translation)
+      void fetchWords(
+        partial.source,
+        partial.translation,
+        partial.sourceLang,
+      )
     } catch (err) {
       setAnalysis(null)
       setAnalyzeError(
@@ -139,13 +195,17 @@ export function Translator({
     setInput('')
     setAnalysis(null)
     setAnalyzeError(null)
-    setDetailsError(null)
+    setWordsError(null)
+    setGrammarError(null)
   }
 
   async function handleCopy() {
     if (!analysis) return
     try {
-      await navigator.clipboard.writeText(analysis.translation)
+      const text = isChineseSourceLang(analysis.sourceLang)
+        ? analysis.source
+        : analysis.translation
+      await navigator.clipboard.writeText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), 1600)
     } catch {
@@ -154,6 +214,9 @@ export function Translator({
   }
 
   const audioAvailable = audioSupported
+  const chineseInput = analysis ? isChineseSourceLang(analysis.sourceLang) : false
+  const studyChinese = analysis ? chineseStudyText(analysis) : ''
+  const studyPinyin = analysis ? chineseStudyPinyin(analysis) : ''
 
   return (
     <div className="flex flex-col gap-6">
@@ -201,8 +264,8 @@ export function Translator({
             )}
             {translating
               ? '翻訳中…'
-              : detailsLoading
-                ? '分析を更新中…'
+              : wordsLoading
+                ? '単語を検索中…'
                 : '翻訳して分析'}
           </button>
           <button
@@ -220,9 +283,9 @@ export function Translator({
             {analyzeError}
           </p>
         )}
-        {detailsError && (
+        {wordsError && (
           <p className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">
-            {detailsError}
+            {wordsError}
           </p>
         )}
       </section>
@@ -230,25 +293,29 @@ export function Translator({
       {/* Output */}
       {analysis ? (
         <div className="flex flex-col gap-6">
-          {/* Translation card */}
+          {/* Result card */}
           <section className="rounded-3xl border border-primary/20 bg-gradient-to-br from-primary/5 to-accent/30 p-5 shadow-sm sm:p-6">
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                台湾華語 Taiwanese Mandarin
+                {chineseInput ? '繁體中文（入力）' : '台湾華語 Taiwanese Mandarin'}
               </span>
               <div className="flex items-center gap-2">
                 <SpeakerButton
-                  text={analysis.translation}
-                  speakId="translation"
+                  text={studyChinese}
+                  speakId="study-chinese"
                   onSpeak={onSpeak}
-                  active={speakingKey === 'translation'}
+                  active={speakingKey === 'study-chinese'}
                   disabled={!audioAvailable}
-                  label="Play full translation"
+                  label={
+                    chineseInput
+                      ? 'Play input Traditional Chinese'
+                      : 'Play full translation'
+                  }
                 />
                 <button
                   type="button"
                   onClick={handleCopy}
-                  aria-label="Copy translation"
+                  aria-label="Copy Chinese text"
                   className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {copied ? (
@@ -261,16 +328,27 @@ export function Translator({
             </div>
 
             <p className="mt-4 font-cjk text-3xl font-medium leading-snug text-foreground text-balance sm:text-4xl">
-              {analysis.translation}
+              {chineseInput ? analysis.source : analysis.translation}
             </p>
             <p className="mt-2 text-base font-medium text-primary">
-              {analysis.translationPinyin}
+              {studyPinyin}
             </p>
             <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
               <span>{analysis.sourceLang}</span>
               <ArrowRight className="h-3 w-3" aria-hidden="true" />
-              <span>繁體中文（台灣）</span>
+              <span>{chineseInput ? '日本語' : '繁體中文（台灣）'}</span>
             </div>
+
+            {chineseInput ? (
+              <div className="mt-5 rounded-2xl border border-border/70 bg-background/70 px-4 py-3">
+                <p className="text-xs font-medium text-muted-foreground">
+                  日本語訳
+                </p>
+                <p className="mt-2 text-lg leading-relaxed text-foreground">
+                  {analysis.translation}
+                </p>
+              </div>
+            ) : null}
 
             {(() => {
               const saved = isSentenceSaved(
@@ -281,7 +359,7 @@ export function Translator({
                 <button
                   type="button"
                   onClick={() => onSaveSentence(analysis)}
-                  disabled={detailsLoading}
+                  disabled={wordsLoading}
                   className={cn(
                     'mt-5 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60',
                     saved
@@ -312,11 +390,11 @@ export function Translator({
               <h3 className="text-base font-semibold text-foreground">
                 単語の分解
               </h3>
-              {detailsLoading ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-                  分析中
-                </span>
+            {wordsLoading ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                辞書検索中
+              </span>
               ) : (
                 <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                   {analysis.words.length} 語
@@ -324,9 +402,11 @@ export function Translator({
               )}
             </div>
             <p className="mb-4 text-xs text-muted-foreground">
-              単語をタップすると詳細が表示されます
+              {chineseInput
+                ? '入力した繁体字の文を分解しています。タップで詳細を表示できます。'
+                : '単語をタップすると詳細が表示されます'}
             </p>
-            {detailsLoading && analysis.words.length === 0 ? (
+            {wordsLoading && analysis.words.length === 0 ? (
               <DetailsSkeleton />
             ) : (
               <div className="flex flex-wrap gap-2.5">
@@ -345,22 +425,45 @@ export function Translator({
             )}
           </section>
 
-          {/* Grammar */}
-          {detailsLoading && analysis.grammar.length === 0 ? (
-            <section className="rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-6">
-              <div className="mb-4 flex items-center gap-2">
-                <h3 className="text-base font-semibold text-foreground">
-                  文法解説
-                </h3>
-                <Loader2
-                  className="h-4 w-4 animate-spin text-muted-foreground"
-                  aria-hidden="true"
-                />
-              </div>
-              <DetailsSkeleton rows={2} />
-            </section>
-          ) : (
+          {/* Grammar (on demand) */}
+          {analysis.grammar.length > 0 ? (
             <GrammarCard notes={analysis.grammar} />
+          ) : (
+            <section className="rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-accent text-accent-foreground">
+                    <GraduationCap className="h-5 w-5" aria-hidden="true" />
+                  </span>
+                  <div>
+                    <h3 className="text-base font-semibold text-foreground">
+                      文法解説
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      必要なときだけ Gemini で解説を生成します
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void fetchGrammar()}
+                  disabled={grammarLoading || wordsLoading}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl border border-border bg-background px-5 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {grammarLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" aria-hidden="true" />
+                  )}
+                  {grammarLoading ? '生成中…' : '文法解説を見る'}
+                </button>
+              </div>
+              {grammarError && (
+                <p className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">
+                  {grammarError}
+                </p>
+              )}
+            </section>
           )}
         </div>
       ) : translating ? (
@@ -399,8 +502,8 @@ function AnalyzingState({ phase }: { phase: 'translate' | 'full' }) {
       </p>
       <p className="mt-1 max-w-xs text-xs text-muted-foreground text-pretty">
         {phase === 'translate'
-          ? '訳文ができ次第すぐ表示します。文法・単語はその後に続けて読み込みます。'
-          : '台湾華語の訳・ピンイン・注音・単語カード・文法ノートを作成しています。'}
+          ? '訳文ができ次第すぐ表示します。単語はその後に読み込みます。'
+          : '台湾華語の訳・ピンイン・注音・単語カードを作成しています。'}
       </p>
     </div>
   )
@@ -416,7 +519,7 @@ function EmptyState() {
         ここに翻訳と分析が表示されます
       </p>
       <p className="mt-1 max-w-xs text-xs text-muted-foreground text-pretty">
-        日本語または繁体字の文を入力して「翻訳して分析」を押すと、台湾華語の訳・文法解説・単語カードが出てきます。
+        日本語または繁体字の文を入力して「翻訳して分析」を押すと、台湾華語の訳と単語カードが表示されます。文法解説は必要なときだけ取得できます。
       </p>
     </div>
   )

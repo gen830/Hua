@@ -1,8 +1,9 @@
 import { ApiError } from '@google/genai'
 import {
-  analyzeDetailsWithGemini,
+  analyzeGrammarWithGemini,
   isZeroQuotaError,
 } from '@/lib/gemini-analyze'
+import { analyzeWords } from '@/lib/analyze-words'
 import {
   describeApiKeyFormat,
   resolveGeminiApiKey,
@@ -57,10 +58,18 @@ function formatGeminiError(error: unknown): string {
   return '翻訳・文法分析に失敗しました。しばらくしてから再試行してください。'
 }
 
+type AnalyzePhase = 'translate' | 'words' | 'grammar'
+
+function parsePhase(value: unknown): AnalyzePhase {
+  if (value === 'words' || value === 'grammar') return value
+  return 'translate'
+}
+
 type AnalyzeBody = {
   text?: unknown
   phase?: unknown
   translation?: unknown
+  sourceLang?: unknown
 }
 
 function translateKeyHint(): string {
@@ -79,9 +88,11 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as AnalyzeBody
     const text = typeof body.text === 'string' ? body.text.trim() : ''
-    const phase = body.phase === 'details' ? 'details' : 'translate'
+    const phase = parsePhase(body.phase)
     const translation =
       typeof body.translation === 'string' ? body.translation.trim() : ''
+    const sourceLang =
+      typeof body.sourceLang === 'string' ? body.sourceLang.trim() : ''
 
     if (!text) {
       return Response.json({ error: 'text is required' }, { status: 400 })
@@ -90,7 +101,20 @@ export async function POST(request: Request) {
       return Response.json({ error: 'text too long' }, { status: 400 })
     }
 
-    if (phase === 'details') {
+    if (phase === 'words' || phase === 'grammar') {
+      if (!translation) {
+        return Response.json(
+          { error: 'translation is required for words and grammar phases' },
+          { status: 400 },
+        )
+      }
+
+      if (phase === 'words') {
+        return Response.json(
+          await analyzeWords(text, translation, sourceLang),
+        )
+      }
+
       const geminiKey = resolveGeminiApiKey()
       if (!geminiKey) {
         return Response.json({ error: geminiKeyHint() }, { status: 503 })
@@ -98,19 +122,11 @@ export async function POST(request: Request) {
 
       if (process.env.NODE_ENV === 'development') {
         console.info(
-          `[analyze/details] Using Gemini key format: ${describeApiKeyFormat(geminiKey)}`,
+          `[analyze/${phase}] Using Gemini key format: ${describeApiKeyFormat(geminiKey)}`,
         )
       }
 
-      if (!translation) {
-        return Response.json(
-          { error: 'translation is required for details phase' },
-          { status: 400 },
-        )
-      }
-
-      const details = await analyzeDetailsWithGemini(text, translation)
-      return Response.json(details)
+      return Response.json(await analyzeGrammarWithGemini(text, translation))
     }
 
     if (!resolveGoogleTranslateApiKey()) {
