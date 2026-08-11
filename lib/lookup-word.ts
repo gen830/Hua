@@ -1,4 +1,4 @@
-import { pinyin } from 'pinyin-pro'
+import { romanizeHanzi } from './chinese-romanization'
 import { DICTIONARY, type Word } from './huamaster-data'
 
 const wordCache = new Map<string, Word>()
@@ -14,10 +14,11 @@ export function lookupWord(hanzi: string): Word {
     return known
   }
 
+  const { pinyin, bopomofo } = romanizeHanzi(hanzi)
   const word: Word = {
     hanzi,
-    pinyin: pinyin(hanzi, { toneType: 'symbol', type: 'array' }).join(' '),
-    bopomofo: '—',
+    pinyin,
+    bopomofo,
     jp: '（辞書未登録）',
     pos: '—',
   }

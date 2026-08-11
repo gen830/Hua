@@ -1,4 +1,5 @@
 import { ApiError, Type } from '@google/genai'
+import { sentencePinyin } from './chinese-romanization'
 import { createGeminiClient } from './gemini-client'
 import { getGeminiModelsToTry } from './gemini-config'
 import { segmentChineseText } from './chinese-segment-server'
@@ -7,8 +8,6 @@ import type { Analysis, GrammarNote, Word } from './huamaster-data'
 
 type GeminiWord = {
   hanzi: string
-  pinyin: string
-  bopomofo: string
   jp: string
   pos: string
 }
@@ -16,7 +15,6 @@ type GeminiWord = {
 type GeminiAnalysisPayload = {
   sourceLang: string
   translation: string
-  translationPinyin: string
   grammar: GrammarNote[]
   words: GeminiWord[]
 }
@@ -31,10 +29,6 @@ const ANALYSIS_JSON_SCHEMA = {
     translation: {
       type: Type.STRING,
       description: 'Taiwan Mandarin translation in Traditional Chinese',
-    },
-    translationPinyin: {
-      type: Type.STRING,
-      description: 'Full-sentence Hanyu Pinyin with tone marks',
     },
     grammar: {
       type: Type.ARRAY,
@@ -53,22 +47,14 @@ const ANALYSIS_JSON_SCHEMA = {
         type: Type.OBJECT,
         properties: {
           hanzi: { type: Type.STRING },
-          pinyin: { type: Type.STRING },
-          bopomofo: { type: Type.STRING },
           jp: { type: Type.STRING },
           pos: { type: Type.STRING },
         },
-        required: ['hanzi', 'pinyin', 'bopomofo', 'jp', 'pos'],
+        required: ['hanzi', 'jp', 'pos'],
       },
     },
   },
-  required: [
-    'sourceLang',
-    'translation',
-    'translationPinyin',
-    'grammar',
-    'words',
-  ],
+  required: ['sourceLang', 'translation', 'grammar', 'words'],
 }
 
 function buildPrompt(source: string): string {
@@ -89,7 +75,8 @@ Instructions:
 - Write grammar notes in Japanese for beginner learners (2–4 notes).
 - Segment the translation into vocabulary items in reading order.
 - Keep natural compound words together (e.g. 牛肉麵, not splitting into 牛肉 + 麵).
-- For each word provide: hanzi, pinyin (tone marks), bopomofo (注音), Japanese meaning (jp), part of speech in Japanese (pos).
+- For each word provide: hanzi, Japanese meaning (jp), part of speech in Japanese (pos).
+- Do NOT output pinyin or bopomofo — those are added locally.
 - sourceLang must be a short Japanese label such as "日本語" or "繁體中文".`
 }
 
@@ -97,12 +84,11 @@ function toWord(raw: GeminiWord): Word {
   const known = lookupWord(raw.hanzi)
   const geminiJp = raw.jp?.trim()
 
-  // Prefer Gemini gloss when present; fall back to offline dictionary.
   if (geminiJp) {
     return {
       hanzi: raw.hanzi,
-      pinyin: raw.pinyin || known.pinyin,
-      bopomofo: raw.bopomofo || known.bopomofo,
+      pinyin: known.pinyin,
+      bopomofo: known.bopomofo,
       jp: geminiJp,
       pos: raw.pos || known.pos,
     }
@@ -111,18 +97,13 @@ function toWord(raw: GeminiWord): Word {
   if (known.jp !== '（辞書未登録）') {
     return {
       ...known,
-      pinyin: raw.pinyin || known.pinyin,
-      bopomofo: raw.bopomofo || known.bopomofo,
       pos: raw.pos || known.pos,
     }
   }
 
   return {
-    hanzi: raw.hanzi,
-    pinyin: raw.pinyin,
-    bopomofo: raw.bopomofo,
-    jp: raw.jp,
-    pos: raw.pos,
+    ...known,
+    pos: raw.pos || known.pos,
   }
 }
 
@@ -269,7 +250,7 @@ async function generateAnalysis(
   return {
     sourceLang: parsed.sourceLang,
     translation: parsed.translation,
-    translationPinyin: parsed.translationPinyin,
+    translationPinyin: sentencePinyin(parsed.translation),
     grammar: parsed.grammar ?? [],
     words: mergeWords(parsed.translation, parsed.words ?? []),
   }

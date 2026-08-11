@@ -122,7 +122,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const entries = await fetchSavedWords(email)
       setWords(entries)
     } catch (err) {
-      console.error('[saved_words] fetch failed', err)
+      const detail =
+        err && typeof err === 'object'
+          ? {
+              code: (err as { code?: string }).code,
+              message: (err as { message?: string }).message,
+            }
+          : err
+      console.error('[saved_words] fetch failed', detail)
       setWords([])
       setWordsError(formatSupabaseError(err, '単語の取得'))
     } finally {
@@ -159,7 +166,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setSentences(entries)
     } catch (err) {
-      console.error('[saved_sentences] fetch failed', err)
+      const detail =
+        err && typeof err === 'object'
+          ? {
+              code: (err as { code?: string }).code,
+              message: (err as { message?: string }).message,
+            }
+          : err
+      console.error('[saved_sentences] fetch failed', detail)
       setSentences([])
       setSentencesError(formatSupabaseError(err, '文章の取得'))
     } finally {
@@ -198,7 +212,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session?.user) {
         const mapped = mapSupabaseUser(session.user)
         setUser(mapped)
-        void loadUserData(mapped.email)
+        queueMicrotask(() => {
+          if (mounted) void loadUserData(mapped.email)
+        })
       }
       setReady(true)
     })
@@ -210,7 +226,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session?.user) {
         const mapped = mapSupabaseUser(session.user)
         setUser(mapped)
-        void loadUserData(mapped.email)
+        // Defer Supabase Data API calls to avoid auth callback deadlocks.
+        queueMicrotask(() => {
+          if (mounted) void loadUserData(mapped.email)
+        })
       } else {
         setUser(null)
         clearUserData()

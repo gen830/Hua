@@ -9,6 +9,16 @@ export function formatSupabaseError(error: unknown, action: string): string {
   const err = error as PostgrestErrorLike
   const message = err?.message ?? ''
 
+  if (err?.code === 'PGRST303') {
+    if (message.includes('JWT issued at future')) {
+      return `${action}に失敗しました: PC の時計が Supabase より進んでいます。Windows の「日付と時刻」→「今すぐ同期」で時刻を合わせ、ログアウトして再ログインしてください。`
+    }
+    if (/expired|expire/i.test(message)) {
+      return `${action}に失敗しました: ログインの有効期限が切れました。一度ログアウトして、Google で再ログインしてください。`
+    }
+    return `${action}に失敗しました: ログイン情報の検証に失敗しました。ログアウトして再ログインするか、PC の時刻設定を確認してください。`
+  }
+
   if (
     err?.code === 'PGRST205' ||
     message.includes('Could not find the table') ||

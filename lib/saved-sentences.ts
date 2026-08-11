@@ -1,5 +1,8 @@
 import type { Analysis, GrammarNote, SentenceEntry, Word } from './huamaster-data'
-import { getSupabaseClient } from './supabaseClient'
+import {
+  getAuthenticatedSupabase,
+  withSupabaseDataRetry,
+} from './supabase-data'
 
 export type SavedSentenceRow = {
   id: string
@@ -33,64 +36,61 @@ function sentenceKey(source: string, translation: string): string {
 export async function fetchSavedSentences(
   userEmail: string,
 ): Promise<SentenceEntry[]> {
-  const supabase = getSupabaseClient()
-  if (!supabase) {
-    throw new Error('Supabase is not configured')
-  }
+  return withSupabaseDataRetry(async () => {
+    const supabase = await getAuthenticatedSupabase()
 
-  const { data, error } = await supabase
-    .from('saved_sentences')
-    .select('*')
-    .eq('user_email', userEmail)
-    .order('added_at', { ascending: false })
+    const { data, error } = await supabase
+      .from('saved_sentences')
+      .select('*')
+      .eq('user_email', userEmail)
+      .order('added_at', { ascending: false })
 
-  if (error) throw error
-  return (data as SavedSentenceRow[]).map(rowToEntry)
+    if (error) throw error
+    return (data as SavedSentenceRow[]).map(rowToEntry)
+  })
 }
 
 export async function insertSavedSentence(
   userEmail: string,
   analysis: Analysis,
 ): Promise<SentenceEntry> {
-  const supabase = getSupabaseClient()
-  if (!supabase) {
-    throw new Error('Supabase is not configured')
-  }
+  return withSupabaseDataRetry(async () => {
+    const supabase = await getAuthenticatedSupabase()
 
-  const { data, error } = await supabase
-    .from('saved_sentences')
-    .insert({
-      user_email: userEmail,
-      source: analysis.source,
-      source_lang: analysis.sourceLang,
-      translation: analysis.translation,
-      translation_pinyin: analysis.translationPinyin,
-      words: analysis.words,
-      grammar: analysis.grammar,
-    })
-    .select('*')
-    .single()
+    const { data, error } = await supabase
+      .from('saved_sentences')
+      .insert({
+        user_email: userEmail,
+        source: analysis.source,
+        source_lang: analysis.sourceLang,
+        translation: analysis.translation,
+        translation_pinyin: analysis.translationPinyin,
+        words: analysis.words,
+        grammar: analysis.grammar,
+      })
+      .select('*')
+      .single()
 
-  if (error) throw error
-  return rowToEntry(data as SavedSentenceRow)
+    if (error) throw error
+    return rowToEntry(data as SavedSentenceRow)
+  })
 }
 
 export async function deleteSavedSentenceById(
   userEmail: string,
   id: string,
 ): Promise<void> {
-  const supabase = getSupabaseClient()
-  if (!supabase) {
-    throw new Error('Supabase is not configured')
-  }
+  await withSupabaseDataRetry(async () => {
+    const supabase = await getAuthenticatedSupabase()
 
-  const { error } = await supabase
-    .from('saved_sentences')
-    .delete()
-    .eq('user_email', userEmail)
-    .eq('id', id)
+    const { error } = await supabase
+      .from('saved_sentences')
+      .delete()
+      .eq('user_email', userEmail)
+      .eq('id', id)
 
-  if (error) throw error
+    if (error) throw error
+  })
 }
 
 /** Import localStorage sentences that are not already in Supabase. */

@@ -50,6 +50,9 @@ importers:
       pinyin-pro:
         specifier: ^3.28.2
         version: 3.28.2
+      pinyin-to-zhuyin:
+        specifier: ^1.1.0
+        version: 1.1.0
       react:
         specifier: ^19
         version: 19.2.4
@@ -1897,6 +1900,14 @@ packages:
 
   pinyin-pro@3.28.2:
     resolution: {integrity: sha512-jV38yxXHLfidirMC4hrXasLDozLCSq/4DfX88GnHcSEJ2+GpSedG6I9VOiEXJu6iQ5dbJC/RjmzyMuS5h/wH5A==}
+
+  pinyin-to-zhuyin@1.1.0:
+    resolution: {integrity: sha512-tGMv4J9bE6/Mrxn1q5HHfe4Jsy/fkA/vxWlXzat/WCVbfqATTuS8pnY/lKlErN9iBR11u2EXO5KXt+uNqgKLTQ==}
+    hasBin: true
+
+  pinyin-tone-tool@1.0.5:
+    resolution: {integrity: sha512-1tKAwjYvpvVJVr7Sb7oCW+Far9EqNtE7mG3mFFztPyGwJs7jZiWpfj62aA4MtY8P5iLcJ2G9975Y3Pkwygi0ug==}
+    hasBin: true
 
   pkce-challenge@5.0.1:
     resolution: {integrity: sha512-wQ0b/W4Fr01qtpHlqSqspcj3EhBvimsdh0KlHhH8HRZnMsEa0ea2fTULOXOS9ccQr3om+GcGRk4e+isrZWV8qQ==}
@@ -4004,6 +4015,12 @@ snapshots:
   picomatch@4.0.4: {}
 
   pinyin-pro@3.28.2: {}
+
+  pinyin-to-zhuyin@1.1.0:
+    dependencies:
+      pinyin-tone-tool: 1.0.5
+
+  pinyin-tone-tool@1.0.5: {}
 
   pkce-challenge@5.0.1: {}
 

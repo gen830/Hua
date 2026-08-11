@@ -1,5 +1,6 @@
 // HuaMaster shared types and offline vocabulary lookup.
 // Translation and grammar analysis are powered by Gemini (see /api/analyze).
+// Pinyin and bopomofo are generated locally (see lib/chinese-romanization.ts).
 
 export type Word = {
   /** Traditional Chinese surface form, e.g. 牛肉麵 */

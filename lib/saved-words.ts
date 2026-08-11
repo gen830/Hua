@@ -1,5 +1,8 @@
 import type { NotebookEntry, ReviewStatus, Word } from './huamaster-data'
-import { getSupabaseClient } from './supabaseClient'
+import {
+  getAuthenticatedSupabase,
+  withSupabaseDataRetry,
+} from './supabase-data'
 
 export type SavedWordRow = {
   id: string
@@ -29,82 +32,78 @@ function rowToEntry(row: SavedWordRow): NotebookEntry {
 export async function fetchSavedWords(
   userEmail: string,
 ): Promise<NotebookEntry[]> {
-  const supabase = getSupabaseClient()
-  if (!supabase) {
-    throw new Error('Supabase is not configured')
-  }
+  return withSupabaseDataRetry(async () => {
+    const supabase = await getAuthenticatedSupabase()
 
-  const { data, error } = await supabase
-    .from('saved_words')
-    .select('*')
-    .eq('user_email', userEmail)
-    .order('added_at', { ascending: false })
+    const { data, error } = await supabase
+      .from('saved_words')
+      .select('*')
+      .eq('user_email', userEmail)
+      .order('added_at', { ascending: false })
 
-  if (error) throw error
-  return (data as SavedWordRow[]).map(rowToEntry)
+    if (error) throw error
+    return (data as SavedWordRow[]).map(rowToEntry)
+  })
 }
 
 export async function insertSavedWord(
   userEmail: string,
   word: Word,
 ): Promise<NotebookEntry> {
-  const supabase = getSupabaseClient()
-  if (!supabase) {
-    throw new Error('Supabase is not configured')
-  }
+  return withSupabaseDataRetry(async () => {
+    const supabase = await getAuthenticatedSupabase()
 
-  const { data, error } = await supabase
-    .from('saved_words')
-    .insert({
-      user_email: userEmail,
-      hanzi: word.hanzi,
-      pinyin: word.pinyin,
-      bopomofo: word.bopomofo,
-      jp: word.jp,
-      pos: word.pos,
-      status: 'reviewing',
-    })
-    .select('*')
-    .single()
+    const { data, error } = await supabase
+      .from('saved_words')
+      .insert({
+        user_email: userEmail,
+        hanzi: word.hanzi,
+        pinyin: word.pinyin,
+        bopomofo: word.bopomofo,
+        jp: word.jp,
+        pos: word.pos,
+        status: 'reviewing',
+      })
+      .select('*')
+      .single()
 
-  if (error) throw error
-  return rowToEntry(data as SavedWordRow)
+    if (error) throw error
+    return rowToEntry(data as SavedWordRow)
+  })
 }
 
 export async function deleteSavedWordByHanzi(
   userEmail: string,
   hanzi: string,
 ): Promise<void> {
-  const supabase = getSupabaseClient()
-  if (!supabase) {
-    throw new Error('Supabase is not configured')
-  }
+  await withSupabaseDataRetry(async () => {
+    const supabase = await getAuthenticatedSupabase()
 
-  const { error } = await supabase
-    .from('saved_words')
-    .delete()
-    .eq('user_email', userEmail)
-    .eq('hanzi', hanzi)
+    const { error } = await supabase
+      .from('saved_words')
+      .delete()
+      .eq('user_email', userEmail)
+      .eq('hanzi', hanzi)
 
-  if (error) throw error
+    if (error) throw error
+  })
 }
 
 export async function deleteSavedWordById(
   userEmail: string,
   id: string,
 ): Promise<void> {
-  const supabase = getSupabaseClient()
-  if (!supabase) {
-    throw new Error('Supabase is not configured')
-  }
+  await withSupabaseDataRetry(async () => {
+    const supabase = await getAuthenticatedSupabase()
 
-  const { error } = await supabase
-    .from('saved_words')
-    .delete()
-    .eq('user_email', userEmail)
-    .eq('id', id)
+    const { error } = await supabase
+      .from('saved_words')
+      .delete()
+      .eq('user_email', userEmail)
+      .eq('id', id)
 
-  if (error) throw error
+    if (error) throw error
+  })
 }
 
 export async function updateSavedWordStatus(
@@ -112,16 +111,15 @@ export async function updateSavedWordStatus(
   id: string,
   status: ReviewStatus,
 ): Promise<void> {
-  const supabase = getSupabaseClient()
-  if (!supabase) {
-    throw new Error('Supabase is not configured')
-  }
+  await withSupabaseDataRetry(async () => {
+    const supabase = await getAuthenticatedSupabase()
 
-  const { error } = await supabase
-    .from('saved_words')
-    .update({ status })
-    .eq('user_email', userEmail)
-    .eq('id', id)
+    const { error } = await supabase
+      .from('saved_words')
+      .update({ status })
+      .eq('user_email', userEmail)
+      .eq('id', id)
 
-  if (error) throw error
+    if (error) throw error
+  })
 }
