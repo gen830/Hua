@@ -5,6 +5,7 @@ import { LogIn } from 'lucide-react'
 import { Header, type View } from '@/components/huamaster/header'
 import { Translator } from '@/components/huamaster/translator'
 import { Library } from '@/components/huamaster/library'
+import { ReviewPanel } from '@/components/huamaster/review-panel'
 import { SettingsPanel } from '@/components/huamaster/settings-panel'
 import { WordDetailModal } from '@/components/huamaster/word-detail-modal'
 import { SignInModal } from '@/components/huamaster/sign-in-modal'
@@ -13,6 +14,7 @@ import { useSpeech } from '@/lib/use-speech'
 import { AuthProvider, useAuth } from '@/lib/auth-context'
 import { SettingsProvider, useSettings } from '@/lib/settings-context'
 import type { Analysis, Word } from '@/lib/huamaster-data'
+import { isDue } from '@/lib/srs'
 
 export default function Page() {
   return (
@@ -40,6 +42,7 @@ function HuaMaster() {
     toggleWord,
     removeWord,
     setWordStatus,
+    reviewWord,
     isSentenceSaved,
     saveSentence,
     removeSentence,
@@ -50,6 +53,8 @@ function HuaMaster() {
   const [signInOpen, setSignInOpen] = useState(false)
   const [signInReason, setSignInReason] = useState<string | undefined>(undefined)
   const [authError, setAuthError] = useState<string | null>(null)
+
+  const dueCount = words.filter((w) => isDue(w)).length
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -84,8 +89,12 @@ function HuaMaster() {
 
   const handleNavigate = useCallback(
     (v: View) => {
-      if (v === 'library' && !user) {
-        openSignIn('保存ライブラリを見るにはログインしてください')
+      if ((v === 'library' || v === 'review') && !user) {
+        openSignIn(
+          v === 'review'
+            ? '復習を始めるにはログインしてください'
+            : '保存ライブラリを見るにはログインしてください',
+        )
         return
       }
       setView(v)
@@ -126,6 +135,7 @@ function HuaMaster() {
         view={view}
         setView={handleNavigate}
         savedCount={words.length + sentences.length}
+        dueCount={dueCount}
         user={user}
         onSignInClick={() => openSignIn()}
         onSignOut={signOut}
@@ -157,6 +167,28 @@ function HuaMaster() {
               isSentenceSaved={isSentenceSaved}
             />
           </>
+        ) : view === 'review' ? (
+          <>
+            <div className="mb-6 sm:mb-8">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground text-balance sm:text-3xl">
+                単語の復習
+              </h1>
+              <p className="mt-1.5 text-sm text-muted-foreground text-pretty">
+                保存ライブラリの単語を間隔反復で復習します。復習中は翻訳 API を使いません。
+              </p>
+            </div>
+            <ReviewPanel
+              words={words}
+              loading={wordsLoading}
+              error={wordsError}
+              onReview={reviewWord}
+              onSpeak={handleSpeak}
+              speakingKey={speakingKey}
+              audioSupported={audioSupported}
+              signedIn={Boolean(user)}
+              onSignIn={() => openSignIn('復習を始めるにはログインしてください')}
+            />
+          </>
         ) : view === 'library' ? (
           <>
             <div className="mb-6 sm:mb-8">
@@ -164,7 +196,7 @@ function HuaMaster() {
                 私の保存ライブラリ
               </h1>
               <p className="mt-1.5 text-sm text-muted-foreground text-pretty">
-                保存した文章・文法解説と単語をまとめて復習できます。
+                保存した文章・文法解説と単語をまとめて確認できます。
               </p>
             </div>
             {user ? (

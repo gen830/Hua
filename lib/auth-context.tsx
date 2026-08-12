@@ -30,9 +30,11 @@ import {
   deleteSavedWordById,
   fetchSavedWords,
   insertSavedWord,
+  reviewSavedWord,
   updateSavedWordStatus,
 } from './saved-words'
 import { formatSupabaseError } from './supabase-errors'
+import type { SrsGrade } from './srs'
 import {
   getAuthCallbackUrl,
   getSupabaseClient,
@@ -57,6 +59,7 @@ type AuthContextValue = {
   toggleWord: (word: Word) => Promise<void>
   removeWord: (id: string) => Promise<void>
   setWordStatus: (id: string, status: ReviewStatus) => Promise<void>
+  reviewWord: (id: string, grade: SrsGrade) => Promise<void>
   refreshWords: () => Promise<void>
   isSentenceSaved: (source: string, translation: string) => boolean
   saveSentence: (analysis: Analysis) => Promise<void>
@@ -367,6 +370,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user, words],
   )
 
+  const reviewWord = useCallback(
+    async (id: string, grade: SrsGrade) => {
+      if (!user) return
+      const entry = words.find((w) => w.id === id)
+      if (!entry) return
+
+      const previous = words
+      try {
+        const updated = await reviewSavedWord(user.email, entry, grade)
+        setWords((prev) => prev.map((w) => (w.id === id ? updated : w)))
+        setWordsError(null)
+      } catch (err) {
+        console.error('[saved_words] review failed', err)
+        setWords(previous)
+        setWordsError(formatSupabaseError(err, '復習結果の保存'))
+      }
+    },
+    [user, words],
+  )
+
   const isSentenceSaved = useCallback(
     (source: string, translation: string) =>
       sentences.some(
@@ -454,6 +477,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       toggleWord,
       removeWord,
       setWordStatus,
+      reviewWord,
       refreshWords,
       isSentenceSaved,
       saveSentence,
@@ -476,6 +500,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       toggleWord,
       removeWord,
       setWordStatus,
+      reviewWord,
       refreshWords,
       isSentenceSaved,
       saveSentence,
