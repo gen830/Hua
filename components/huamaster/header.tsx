@@ -1,17 +1,18 @@
 'use client'
 
-import { BookOpen, Languages, Settings } from 'lucide-react'
+import { BookOpen, Languages, Layers, Settings } from 'lucide-react'
 import type { User } from '@/lib/auth-context'
 import { GoogleGlyph } from './google-glyph'
 import { UserMenu } from './user-menu'
 import { cn } from '@/lib/utils'
 
-export type View = 'translate' | 'library' | 'settings'
+export type View = 'translate' | 'review' | 'library' | 'settings'
 
 type HeaderProps = {
   view: View
   setView: (v: View) => void
   savedCount: number
+  dueCount?: number
   user: User | null
   onSignInClick: () => void
   onSignOut: () => void
@@ -21,6 +22,7 @@ export function Header({
   view,
   setView,
   savedCount,
+  dueCount = 0,
   user,
   onSignInClick,
   onSignOut,
@@ -55,6 +57,13 @@ export function Header({
             onClick={() => setView('translate')}
             icon={<Languages className="h-4 w-4" aria-hidden="true" />}
             label="翻訳・分析"
+          />
+          <NavButton
+            active={view === 'review'}
+            onClick={() => setView('review')}
+            icon={<Layers className="h-4 w-4" aria-hidden="true" />}
+            label="復習"
+            badge={dueCount}
           />
           <NavButton
             active={view === 'library'}
