@@ -21,6 +21,16 @@ export type NotebookEntry = Word & {
   id: string
   status: ReviewStatus
   addedAt: number
+  /** Unix ms — when this card is next due for SRS review */
+  dueAt: number
+  /** Current SRS interval in whole days */
+  intervalDays: number
+  /** SM-2 ease factor (typically ~1.3–3.0) */
+  ease: number
+  /** Successful review streak count */
+  repetitions: number
+  /** Unix ms of last review, or null if never reviewed */
+  lastReviewedAt: number | null
 }
 
 export type GrammarNote = {
